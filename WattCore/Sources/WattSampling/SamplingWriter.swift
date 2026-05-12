@@ -74,6 +74,34 @@ public actor SamplingWriter {
         return episode.persistentModelID
     }
 
+    /// Inserts a `DrainEpisode` row that was synthesised by the operator
+    /// (the "look back at the last 30 min" command), already finished and
+    /// fully populated. Differs from `writeEpisode(...)` which is designed
+    /// for live detection where end-state is unknown at start time.
+    public func writeAdHocEpisode(
+        startedAt: Date,
+        endedAt: Date,
+        startPercent: Double,
+        endPercent: Double,
+        peakDrainRatePctPerHour: Double,
+        peakSystemEnergyWatts: Double,
+        avgThermalState: Int
+    ) throws -> PersistentIdentifier {
+        let episode = DrainEpisode(
+            startedAt: startedAt,
+            endedAt: endedAt,
+            startPercent: startPercent,
+            endPercent: endPercent,
+            peakDrainRatePctPerHour: peakDrainRatePctPerHour,
+            avgThermalState: avgThermalState,
+            trigger: .userTriggered,
+            peakSystemEnergyWatts: peakSystemEnergyWatts
+        )
+        modelContext.insert(episode)
+        try modelContext.save()
+        return episode.persistentModelID
+    }
+
     public func updateEpisode(
         id: PersistentIdentifier,
         endedAt: Date,

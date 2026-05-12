@@ -25,6 +25,88 @@ public actor ReportCoordinator {
         self.version = version
     }
 
+    /// Operator-driven equivalent of an automatic episode: synthesise a
+    /// `DrainEpisode` row spanning the last `lookback` seconds, run the same
+    /// analysis + report pipeline, and persist both. Returns the new
+    /// episode's identifier so the caller can navigate to it.
+    @discardableResult
+    public func generateAdHocReport(
+        lookback: TimeInterval = 30 * 60,
+        now: Date = Date()
+    ) async -> PersistentIdentifier? {
+        let interval = now.addingTimeInterval(-lookback) ... now
+        guard let samples = try? await writer.loadSamplePoints(in: interval),
+              let events = try? await writer.loadUserEventPoints(in: interval),
+              !samples.isEmpty
+        else { return nil }
+
+        let startPercent = samples.first?.batteryPercent ?? .nan
+        let endPercent = samples.last?.batteryPercent ?? .nan
+        let avgThermal = samples.isEmpty
+            ? 0
+            : Int((Double(samples.map(\.thermalState).reduce(0, +)) / Double(samples.count)).rounded())
+        let peakWatts = samples.map(\.systemEnergyWatts).max() ?? 0
+
+        // Approximate peak drain rate from the captured window.
+        let peakDrain: Double = {
+            guard let first = samples.first, let last = samples.last,
+                  !first.batteryPercent.isNaN, !last.batteryPercent.isNaN
+            else { return 0 }
+            let dt = last.timestamp.timeIntervalSince(first.timestamp)
+            guard dt > 0 else { return 0 }
+            return max(first.batteryPercent - last.batteryPercent, 0) / dt * 3600
+        }()
+
+        let episodeID: PersistentIdentifier
+        do {
+            episodeID = try await writer.writeAdHocEpisode(
+                startedAt: interval.lowerBound,
+                endedAt: interval.upperBound,
+                startPercent: startPercent,
+                endPercent: endPercent,
+                peakDrainRatePctPerHour: peakDrain,
+                peakSystemEnergyWatts: peakWatts,
+                avgThermalState: avgThermal
+            )
+        } catch {
+            return nil
+        }
+
+        let analysis = ProcessCorrelator().correlate(samples: samples)
+        let episodeStub = DrainEpisode(
+            startedAt: interval.lowerBound,
+            endedAt: interval.upperBound,
+            startPercent: startPercent,
+            endPercent: endPercent,
+            peakDrainRatePctPerHour: peakDrain,
+            avgThermalState: avgThermal,
+            trigger: .userTriggered,
+            peakSystemEnergyWatts: peakWatts
+        )
+        let output = await generator.generate(
+            episode: episodeStub,
+            samples: samples,
+            events: events,
+            analysis: analysis,
+            helperInstalled: helperInstalled(),
+            version: version
+        )
+        let report = Report(
+            generatedAt: Date(),
+            headline: output.verdict.headline,
+            markdown: output.markdown,
+            generatedByLLM: output.generatedByLLM,
+            modelTokenCount: output.modelTokenCount
+        )
+        try? await writer.writeReport(report, attachingTo: episodeID)
+        mirrorToDisk(
+            markdown: output.markdown,
+            generatedByLLM: output.generatedByLLM,
+            episodeStart: interval.lowerBound
+        )
+        return episodeID
+    }
+
     public func regenerate(for episodeID: PersistentIdentifier) async {
         let resolved: SamplingWriter.EpisodeBounds?
         do {

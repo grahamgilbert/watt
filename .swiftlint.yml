@@ -55,6 +55,10 @@ cyclomatic_complexity:
   error: 25
   ignores_case_statements: true
 
+function_parameter_count:
+  warning: 8
+  error: 12
+
 force_unwrapping:
   severity: warning
 

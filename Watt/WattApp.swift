@@ -33,10 +33,19 @@ struct WattApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarView(coordinator: coordinator, loginItem: loginItem) {
-                NSApplication.shared.activate(ignoringOtherApps: true)
-                openWindow(id: "report")
-            }
+            MenuBarView(
+                coordinator: coordinator,
+                loginItem: loginItem,
+                openReport: {
+                    NSApplication.shared.activate(ignoringOtherApps: true)
+                    openWindow(id: "report")
+                },
+                onAdHocReport: { lookback in
+                    NSApplication.shared.activate(ignoringOtherApps: true)
+                    openWindow(id: "report")
+                    Task { await reportCoordinator.generateAdHocReport(lookback: lookback) }
+                }
+            )
             .task {
                 coordinator.start()
                 loginItem.registerDefaultIfNeeded()
@@ -54,6 +63,9 @@ struct WattApp: App {
                 },
                 onRegenerate: { id in
                     Task { await reportCoordinator.regenerate(for: id) }
+                },
+                onAdHocReport: { lookback in
+                    Task { await reportCoordinator.generateAdHocReport(lookback: lookback) }
                 }
             )
             .modelContainer(container)

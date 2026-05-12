@@ -7,15 +7,18 @@ public struct MenuBarView: View {
     let coordinator: SamplingCoordinator
     let loginItem: LoginItemController
     let openReport: () -> Void
+    let onAdHocReport: (TimeInterval) -> Void
 
     public init(
         coordinator: SamplingCoordinator,
         loginItem: LoginItemController,
-        openReport: @escaping () -> Void
+        openReport: @escaping () -> Void,
+        onAdHocReport: @escaping (TimeInterval) -> Void = { _ in }
     ) {
         self.coordinator = coordinator
         self.loginItem = loginItem
         self.openReport = openReport
+        self.onAdHocReport = onAdHocReport
     }
 
     public var body: some View {
@@ -43,6 +46,16 @@ public struct MenuBarView: View {
                 .font(.caption)
                 .controlSize(.small)
             }
+            Divider()
+            Menu {
+                Button("Last 15 minutes")  { onAdHocReport(15 * 60) }
+                Button("Last 30 minutes")  { onAdHocReport(30 * 60) }
+                Button("Last 60 minutes")  { onAdHocReport(60 * 60) }
+                Button("Last 2 hours")     { onAdHocReport(2 * 3600) }
+            } label: {
+                Label("Investigate recent activity…", systemImage: "magnifyingglass")
+            }
+            .menuStyle(.borderlessButton)
             Divider()
             HStack {
                 Button("Open Reports", action: openReport)

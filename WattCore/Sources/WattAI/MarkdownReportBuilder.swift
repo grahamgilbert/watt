@@ -15,6 +15,7 @@ public enum MarkdownReportBuilder {
         public var patterns: PatternFlags
         public var verdict: DrainVerdict
         public var generatedByLLM: Bool
+        public var trigger: DrainEpisodeTrigger
         public var samples: [SamplePoint]
         public var watteVersion: String
         public var helperInstalled: Bool
@@ -26,6 +27,7 @@ public enum MarkdownReportBuilder {
             patterns: PatternFlags,
             verdict: DrainVerdict,
             generatedByLLM: Bool,
+            trigger: DrainEpisodeTrigger = .batteryDrain,
             samples: [SamplePoint],
             watteVersion: String = "0.1.0",
             helperInstalled: Bool = false
@@ -36,6 +38,7 @@ public enum MarkdownReportBuilder {
             self.patterns = patterns
             self.verdict = verdict
             self.generatedByLLM = generatedByLLM
+            self.trigger = trigger
             self.samples = samples
             self.watteVersion = watteVersion
             self.helperInstalled = helperInstalled
@@ -46,6 +49,11 @@ public enum MarkdownReportBuilder {
         var lines: [String] = []
         lines.append("# \(input.verdict.headline)")
         lines.append("")
+        if input.trigger == .userTriggered {
+            let mins = Int((input.stats.durationSeconds / 60).rounded())
+            lines.append("_Operator-requested look-back over the last \(mins) min. The detector did not auto-flag this window — the user asked Watt to summarise it._")
+            lines.append("")
+        }
         lines.append(verdictBlock(input))
         lines.append("")
         lines.append(atAGlance(input.stats))

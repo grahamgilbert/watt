@@ -15,15 +15,18 @@ public struct ReportWindow: View {
     let coordinator: SamplingCoordinator
     let onRecordNote: (String) -> Void
     let onRegenerate: (PersistentIdentifier) -> Void
+    let onAdHocReport: (TimeInterval) -> Void
 
     public init(
         coordinator: SamplingCoordinator,
         onRecordNote: @escaping (String) -> Void,
-        onRegenerate: @escaping (PersistentIdentifier) -> Void
+        onRegenerate: @escaping (PersistentIdentifier) -> Void,
+        onAdHocReport: @escaping (TimeInterval) -> Void = { _ in }
     ) {
         self.coordinator = coordinator
         self.onRecordNote = onRecordNote
         self.onRegenerate = onRegenerate
+        self.onAdHocReport = onAdHocReport
     }
 
     public var body: some View {
@@ -40,14 +43,18 @@ public struct ReportWindow: View {
                     ReportDetailView(
                         episode: episode,
                         onRecordNote: onRecordNote,
-                        onRegenerate: { onRegenerate(id) }
+                        onRegenerate: { onRegenerate(id) },
+                        onAdHocReport: onAdHocReport
                     )
                 } else {
-                    ContentUnavailableView(
-                        "No episode selected",
-                        systemImage: "battery.0",
-                        description: Text("Drain episodes will appear here as Watt observes them.")
-                    )
+                    VStack(spacing: 12) {
+                        ContentUnavailableView(
+                            "No episode selected",
+                            systemImage: "battery.0",
+                            description: Text("Drain episodes will appear here as Watt observes them.")
+                        )
+                        AdHocReportMenu(onAdHocReport: onAdHocReport)
+                    }
                     .frame(maxHeight: .infinity)
                 }
             }
@@ -172,17 +179,20 @@ public struct ReportDetailView: View {
     let episode: DrainEpisode
     let onRecordNote: (String) -> Void
     let onRegenerate: () -> Void
+    let onAdHocReport: (TimeInterval) -> Void
     @State private var noteText: String = ""
     @State private var showNoteSheet: Bool = false
 
     public init(
         episode: DrainEpisode,
         onRecordNote: @escaping (String) -> Void,
-        onRegenerate: @escaping () -> Void
+        onRegenerate: @escaping () -> Void,
+        onAdHocReport: @escaping (TimeInterval) -> Void = { _ in }
     ) {
         self.episode = episode
         self.onRecordNote = onRecordNote
         self.onRegenerate = onRegenerate
+        self.onAdHocReport = onAdHocReport
     }
 
     public var body: some View {
@@ -257,6 +267,14 @@ public struct ReportDetailView: View {
             } label: {
                 Label("Reports folder", systemImage: "folder")
             }
+            Menu {
+                Button("Last 15 minutes")  { onAdHocReport(15 * 60) }
+                Button("Last 30 minutes")  { onAdHocReport(30 * 60) }
+                Button("Last 60 minutes")  { onAdHocReport(60 * 60) }
+                Button("Last 2 hours")     { onAdHocReport(2 * 3600) }
+            } label: {
+                Label("Investigate…", systemImage: "magnifyingglass")
+            }
         }
     }
 
@@ -285,6 +303,31 @@ public struct ReportDetailView: View {
         panel.nameFieldStringValue = "watt-episode-\(Int(episode.startedAt.timeIntervalSince1970)).md"
         if panel.runModal() == .OK, let url = panel.url {
             try? md.data(using: .utf8)?.write(to: url)
+        }
+    }
+}
+
+/// Empty-state helper that lets the operator say "look back at the last 30
+/// minutes" without an automatic episode being open.
+public struct AdHocReportMenu: View {
+    let onAdHocReport: (TimeInterval) -> Void
+
+    public init(onAdHocReport: @escaping (TimeInterval) -> Void) {
+        self.onAdHocReport = onAdHocReport
+    }
+
+    public var body: some View {
+        VStack(spacing: 6) {
+            Text("Or look back at recent activity")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Button("15 min")  { onAdHocReport(15 * 60) }
+                Button("30 min")  { onAdHocReport(30 * 60) }
+                Button("60 min")  { onAdHocReport(60 * 60) }
+                Button("2 hours") { onAdHocReport(2 * 3600) }
+            }
+            .controlSize(.small)
         }
     }
 }

@@ -6,6 +6,10 @@ public enum DrainEpisodeTrigger: String, Codable, Sendable, CaseIterable {
     case batteryDrain
     /// Sustained high system wattage while plugged in.
     case acHighEnergy
+    /// Manually requested by the user (e.g. "look back at the last 30 min").
+    /// The episode bounds reflect the lookback window, not a detector
+    /// transition.
+    case userTriggered
 }
 
 @Model

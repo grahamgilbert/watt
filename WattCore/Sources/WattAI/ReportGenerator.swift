@@ -46,6 +46,7 @@ public actor ReportGenerator {
             patterns: analysis.patterns,
             verdict: verdictResult.verdict,
             generatedByLLM: verdictResult.usedLLM,
+            trigger: episode.trigger,
             samples: samples,
             watteVersion: version,
             helperInstalled: helperInstalled

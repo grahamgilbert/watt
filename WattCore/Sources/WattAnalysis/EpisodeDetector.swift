@@ -181,6 +181,11 @@ public struct EpisodeDetector: Sendable {
             let endThreshold = configuration.acHighEnergyThresholdMeanWatts
                 / max(configuration.endThresholdDivisor, .leastNormalMagnitude)
             calmed = windowMeanWatts() < endThreshold
+        case .userTriggered:
+            // The live detector never owns a userTriggered episode; those are
+            // synthesised by ReportCoordinator and never enter the streaming
+            // pipeline. Treat as immediately calmed in the unlikely event.
+            calmed = true
         }
         if calmed {
             belowEndCount += 1
