@@ -134,6 +134,34 @@ public actor SamplingWriter {
         try modelContext.save()
     }
 
+    /// Delete an episode and every Report attached to it. Returns the
+    /// episode's startedAt so the caller can clean up the on-disk Markdown
+    /// mirror.
+    public func deleteEpisode(id: PersistentIdentifier) throws -> Date? {
+        guard let episode = modelContext.model(for: id) as? DrainEpisode else { return nil }
+        let startedAt = episode.startedAt
+        for report in episode.reports {
+            modelContext.delete(report)
+        }
+        modelContext.delete(episode)
+        try modelContext.save()
+        return startedAt
+    }
+
+    public func deleteAllEpisodes() throws -> [Date] {
+        let descriptor = FetchDescriptor<DrainEpisode>()
+        let episodes = try modelContext.fetch(descriptor)
+        let starts = episodes.map(\.startedAt)
+        for episode in episodes {
+            for report in episode.reports {
+                modelContext.delete(report)
+            }
+            modelContext.delete(episode)
+        }
+        try modelContext.save()
+        return starts
+    }
+
     public struct EpisodeBounds: Sendable {
         public var startedAt: Date
         public var endedAt: Date

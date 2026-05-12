@@ -103,6 +103,47 @@ public actor ReportCoordinator {
         return episodeID
     }
 
+    /// Deletes one episode plus every Report attached to it, and removes the
+    /// on-disk Markdown mirrors for those reports.
+    public func delete(episodeID: PersistentIdentifier) async {
+        let started: Date?
+        do {
+            started = try await writer.deleteEpisode(id: episodeID)
+        } catch {
+            return
+        }
+        guard let started else { return }
+        deleteMarkdownMirrors(forEpisodeStartedAt: started)
+    }
+
+    /// Deletes every episode + report from the SwiftData store and clears
+    /// the on-disk Markdown mirror directory.
+    public func deleteAll() async {
+        let starts: [Date]
+        do {
+            starts = try await writer.deleteAllEpisodes()
+        } catch {
+            return
+        }
+        for s in starts {
+            deleteMarkdownMirrors(forEpisodeStartedAt: s)
+        }
+    }
+
+    private nonisolated func deleteMarkdownMirrors(forEpisodeStartedAt episodeStart: Date) {
+        guard let dir = try? WattStore.reportsDirectory() else { return }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd_HHmmss"
+        formatter.timeZone = .current
+        let stamp = formatter.string(from: episodeStart)
+        let prefix = "episode-\(stamp)"
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else { return }
+        for entry in entries where entry.hasPrefix(prefix) {
+            let url = dir.appending(path: entry, directoryHint: .notDirectory)
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
     public func regenerate(for episodeID: PersistentIdentifier) async {
         let resolved: SamplingWriter.EpisodeBounds?
         do {

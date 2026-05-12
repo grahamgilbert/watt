@@ -17,19 +17,23 @@ public struct ReportWindow: View {
     let onRecordNote: (String) -> Void
     let onRegenerate: (PersistentIdentifier) -> Void
     let onAdHocReport: (TimeInterval) -> Void
+    let onDeleteEpisode: (PersistentIdentifier) -> Void
+    @State private var confirmDeleteEpisode: PersistentIdentifier?
 
     public init(
         coordinator: SamplingCoordinator,
         progress: ReportProgress,
         onRecordNote: @escaping (String) -> Void,
         onRegenerate: @escaping (PersistentIdentifier) -> Void,
-        onAdHocReport: @escaping (TimeInterval) -> Void = { _ in }
+        onAdHocReport: @escaping (TimeInterval) -> Void = { _ in },
+        onDeleteEpisode: @escaping (PersistentIdentifier) -> Void = { _ in }
     ) {
         self.coordinator = coordinator
         self.progress = progress
         self.onRecordNote = onRecordNote
         self.onRegenerate = onRegenerate
         self.onAdHocReport = onAdHocReport
+        self.onDeleteEpisode = onDeleteEpisode
     }
 
     public var body: some View {
@@ -48,7 +52,8 @@ public struct ReportWindow: View {
                         episode: episode,
                         onRecordNote: onRecordNote,
                         onRegenerate: { onRegenerate(id) },
-                        onAdHocReport: onAdHocReport
+                        onAdHocReport: onAdHocReport,
+                        onDelete: { confirmDeleteEpisode = id }
                     )
                 } else {
                     VStack(spacing: 12) {
@@ -77,6 +82,24 @@ public struct ReportWindow: View {
                 selectedEpisodeID = id
                 progress.pendingSelection = nil
             }
+        }
+        .confirmationDialog(
+            "Delete this episode?",
+            isPresented: Binding(
+                get: { confirmDeleteEpisode != nil },
+                set: { if !$0 { confirmDeleteEpisode = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let id = confirmDeleteEpisode {
+                    onDeleteEpisode(id)
+                    if selectedEpisodeID == id { selectedEpisodeID = nil }
+                }
+                confirmDeleteEpisode = nil
+            }
+        } message: {
+            Text("Removes the episode and every report attached to it from the database, and deletes the on-disk Markdown mirrors. Cannot be undone.")
         }
     }
 }
@@ -241,6 +264,7 @@ public struct ReportDetailView: View {
     let onRecordNote: (String) -> Void
     let onRegenerate: () -> Void
     let onAdHocReport: (TimeInterval) -> Void
+    let onDelete: () -> Void
     @State private var noteText: String = ""
     @State private var showNoteSheet: Bool = false
 
@@ -248,12 +272,14 @@ public struct ReportDetailView: View {
         episode: DrainEpisode,
         onRecordNote: @escaping (String) -> Void,
         onRegenerate: @escaping () -> Void,
-        onAdHocReport: @escaping (TimeInterval) -> Void = { _ in }
+        onAdHocReport: @escaping (TimeInterval) -> Void = { _ in },
+        onDelete: @escaping () -> Void = {}
     ) {
         self.episode = episode
         self.onRecordNote = onRecordNote
         self.onRegenerate = onRegenerate
         self.onAdHocReport = onAdHocReport
+        self.onDelete = onDelete
     }
 
     public var body: some View {
@@ -347,6 +373,13 @@ public struct ReportDetailView: View {
                 Label("Investigate…", systemImage: "magnifyingglass")
             }
             .help("Generate a one-off report covering recent activity, even if Watt didn’t auto-flag a drain episode.")
+
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .help("Delete this episode and every report attached to it. The on-disk Markdown mirrors are also removed.")
         }
     }
 

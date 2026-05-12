@@ -59,6 +59,11 @@ struct WattApp: App {
         }
     }
 
+    private func runDelete(id: PersistentIdentifier) {
+        let coordinator = reportCoordinator
+        Task { await coordinator.delete(episodeID: id) }
+    }
+
     var body: some Scene {
         MenuBarExtra {
             MenuBarView(
@@ -95,6 +100,9 @@ struct WattApp: App {
                 },
                 onAdHocReport: { lookback in
                     runAdHoc(lookback: lookback)
+                },
+                onDeleteEpisode: { id in
+                    runDelete(id: id)
                 }
             )
             .modelContainer(container)
