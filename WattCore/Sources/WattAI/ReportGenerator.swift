@@ -30,11 +30,14 @@ public actor ReportGenerator {
     ) async -> Output {
         let stats = StatsBuilder.build(samples: samples)
         let timeline = TimelineBuilder.build(samples: samples, events: events, suspects: analysis.suspects)
+        let buckets = PeriodicTopProcesses.compute(samples: samples)
 
         let verdictResult = await produceVerdict(
             stats: stats,
             timeline: timeline,
             suspects: analysis.suspects,
+            securityAgents: analysis.securityAgents,
+            buckets: buckets,
             patterns: analysis.patterns
         )
 
@@ -42,6 +45,8 @@ public actor ReportGenerator {
             stats: stats,
             timeline: timeline,
             suspects: analysis.suspects,
+            securityAgents: analysis.securityAgents,
+            bucketedActivity: buckets,
             patterns: analysis.patterns,
             verdict: verdictResult.verdict,
             generatedByLLM: verdictResult.usedLLM,
@@ -69,6 +74,8 @@ public actor ReportGenerator {
         stats: EpisodeStats,
         timeline: [TimelineEntry],
         suspects: [Suspect],
+        securityAgents: [Suspect],
+        buckets: [ProcessBucket],
         patterns: PatternFlags
     ) async -> VerdictResult {
         #if canImport(FoundationModels)
@@ -79,6 +86,8 @@ public actor ReportGenerator {
                     stats: stats,
                     timeline: timeline,
                     suspects: suspects,
+                    securityAgents: securityAgents,
+                    buckets: buckets,
                     patterns: patterns
                 )
                 let session = LanguageModelSession(
@@ -103,8 +112,10 @@ public actor ReportGenerator {
         let verdict = Templater.fallbackVerdict(
             stats: stats,
             suspects: suspects,
+            securityAgents: securityAgents,
             patterns: patterns
         )
+        _ = buckets // intentionally unused in the templater; available to AI path only.
         return VerdictResult(verdict: verdict, usedLLM: false, tokenCount: nil)
     }
 

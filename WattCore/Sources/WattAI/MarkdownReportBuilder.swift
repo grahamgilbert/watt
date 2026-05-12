@@ -12,6 +12,8 @@ public enum MarkdownReportBuilder {
         public var stats: EpisodeStats
         public var timeline: [TimelineEntry]
         public var suspects: [Suspect]
+        public var securityAgents: [Suspect]
+        public var bucketedActivity: [ProcessBucket]
         public var patterns: PatternFlags
         public var verdict: DrainVerdict
         public var generatedByLLM: Bool
@@ -23,6 +25,8 @@ public enum MarkdownReportBuilder {
             stats: EpisodeStats,
             timeline: [TimelineEntry],
             suspects: [Suspect],
+            securityAgents: [Suspect] = [],
+            bucketedActivity: [ProcessBucket] = [],
             patterns: PatternFlags,
             verdict: DrainVerdict,
             generatedByLLM: Bool,
@@ -33,6 +37,8 @@ public enum MarkdownReportBuilder {
             self.stats = stats
             self.timeline = timeline
             self.suspects = suspects
+            self.securityAgents = securityAgents
+            self.bucketedActivity = bucketedActivity
             self.patterns = patterns
             self.verdict = verdict
             self.generatedByLLM = generatedByLLM
@@ -59,6 +65,14 @@ public enum MarkdownReportBuilder {
         lines.append("")
         lines.append(suspectsSection(input))
         lines.append("")
+        if !input.securityAgents.isEmpty {
+            lines.append(securityAgentsSection(input.securityAgents))
+            lines.append("")
+        }
+        if !input.bucketedActivity.isEmpty {
+            lines.append(bucketedActivitySection(input.bucketedActivity))
+            lines.append("")
+        }
         lines.append(actionsSection(input.verdict.recommendedActions))
         lines.append("")
         lines.append(rawDataSection(stats: input.stats, samples: input.samples, suspects: input.suspects))
@@ -143,6 +157,97 @@ public enum MarkdownReportBuilder {
             lines.append("   \(rationale)")
         }
         return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Security agents
+
+    private static func securityAgentsSection(_ agents: [Suspect]) -> String {
+        var lines = ["## Security / system agents observed"]
+        lines.append("")
+        lines.append(
+            "_These processes are registered as system-wide LaunchDaemons, system extensions,"
+            + " or known endpoint security tools. They run with privileged scheduling regardless"
+            + " of how much CPU they appear to use individually. Their presence is the load-bearing"
+            + " fact a security team needs to see, even when their per-process numbers look modest._"
+        )
+        lines.append("")
+        lines.append("| Process | Identity | CPU-s | Energy units | Read | Written |")
+        lines.append("|---|---|---|---|---|---|")
+        for agent in agents {
+            let classification = SecurityAgents.classify(name: agent.name, bundleID: agent.bundleID)
+            let identity: String
+            switch classification {
+            case .curated(let def):           identity = "\(def.displayName) (\(def.vendor))"
+            case .systemManaged(let svc):
+                let kindLabel: String
+                switch svc.kind {
+                case .endpointSecurityExtension: kindLabel = "EndpointSecurity ext."
+                case .systemExtension:           kindLabel = "System ext."
+                case .launchDaemon:              kindLabel = "LaunchDaemon"
+                }
+                identity = "\(kindLabel) `\(svc.label)`"
+            case .unknown:                   identity = "—"
+            }
+            let read = humanBytes(agent.totalDiskReadBytes)
+            let written = humanBytes(agent.totalDiskWriteBytes)
+            lines.append(
+                "| `\(agent.name)` (pid \(agent.pid)) | \(identity) | \(String(format: "%.0f", agent.totalCPUTime)) | \(scientific(agent.totalEnergyNanojoules)) | \(read) | \(written) |"
+            )
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Bucketed activity
+
+    private static func bucketedActivitySection(_ buckets: [ProcessBucket]) -> String {
+        var lines = ["## Activity over time"]
+        lines.append("")
+        lines.append(
+            "_Top processes by combined CPU + energy + IO score, computed in equal time slices"
+            + " across the episode. Security/system agents are flagged with an asterisk and"
+            + " always included in their slice's list, even if they didn't rank in the top-N._"
+        )
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        formatter.timeZone = .current
+        for bucket in buckets {
+            lines.append("")
+            lines.append("### \(formatter.string(from: bucket.bucketStart))–\(formatter.string(from: bucket.bucketEnd))")
+            lines.append("")
+            lines.append("| Process | CPU-s | Energy (J) | Read | Written | Notes |")
+            lines.append("|---|---|---|---|---|---|")
+            for entry in bucket.entries {
+                let mark = entry.isSecurityAgent ? "*" : ""
+                let notes = entry.isSecurityAgent ? (entry.securityAgentVendor ?? "agent") : ""
+                let read = humanBytes(entry.diskReadBytes)
+                let written = humanBytes(entry.diskWriteBytes)
+                lines.append(
+                    "| `\(entry.name)`\(mark) (pid \(entry.pid)) | \(String(format: "%.1f", entry.cpuSeconds)) | \(String(format: "%.2f", entry.energyJoules)) | \(read) | \(written) | \(notes) |"
+                )
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func humanBytes(_ bytes: UInt64) -> String {
+        if bytes >= 1_073_741_824 {
+            return String(format: "%.2f GB", Double(bytes) / 1_073_741_824)
+        }
+        if bytes >= 1_048_576 {
+            return String(format: "%.0f MB", Double(bytes) / 1_048_576)
+        }
+        if bytes >= 1024 {
+            return String(format: "%.0f KB", Double(bytes) / 1024)
+        }
+        return "\(bytes) B"
+    }
+
+    private static func scientific(_ value: UInt64) -> String {
+        if value == 0 { return "0" }
+        let v = Double(value)
+        let exp = Int(log10(v).rounded(.down))
+        let mantissa = v / pow(10, Double(exp))
+        return String(format: "%.1fe%d", mantissa, exp)
     }
 
     // MARK: - Actions

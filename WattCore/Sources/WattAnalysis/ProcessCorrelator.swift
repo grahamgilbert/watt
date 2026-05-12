@@ -38,10 +38,15 @@ public struct ProcessCorrelator: Sendable {
     public struct Result: Sendable {
         public var suspects: [Suspect]
         public var patterns: PatternFlags
+        /// Every observed security/MDM agent that ran during the episode,
+        /// regardless of whether it scored above the suspect threshold. The
+        /// whole point of Watt is to make these tools' impact visible, so we
+        /// always surface them — even if they're individually quiet.
+        public var securityAgents: [Suspect]
     }
 
     public func correlate(samples: [SamplePoint]) -> Result {
-        guard !samples.isEmpty else { return Result(suspects: [], patterns: .init()) }
+        guard !samples.isEmpty else { return Result(suspects: [], patterns: .init(), securityAgents: []) }
         let totals = aggregate(samples: samples)
         let qualifying = totals.values.filter {
             Double($0.samplesCovered) / Double(samples.count) >= configuration.minCoverageFraction
@@ -67,9 +72,18 @@ public struct ProcessCorrelator: Sendable {
                 score: score
             )
         }
-        let top = scored.sorted { $0.score > $1.score }.prefix(configuration.topN).map { $0 }
+        var top = scored.sorted { $0.score > $1.score }.prefix(configuration.topN).map { $0 }
+        // Always include security/system agents in the top list, even if
+        // they scored below threshold. De-dupe by pid so we don't double-
+        // list an agent that organically made the cut.
+        let securityAgentSuspects = scored
+            .filter { SecurityAgents.classify(name: $0.name, bundleID: $0.bundleID).isAgent }
+            .sorted { $0.score > $1.score }
+        for agent in securityAgentSuspects where !top.contains(where: { $0.pid == agent.pid }) {
+            top.append(agent)
+        }
         let patterns = derivePatterns(samples: samples, top: top, all: scored)
-        return Result(suspects: top, patterns: patterns)
+        return Result(suspects: top, patterns: patterns, securityAgents: securityAgentSuspects)
     }
 
     // MARK: - Aggregation

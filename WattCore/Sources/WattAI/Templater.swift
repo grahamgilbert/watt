@@ -9,6 +9,7 @@ public enum Templater {
     public static func fallbackVerdict(
         stats: EpisodeStats,
         suspects: [Suspect],
+        securityAgents: [Suspect] = [],
         patterns: PatternFlags
     ) -> DrainVerdict {
         let topName = suspects.first?.name ?? "an unidentified process"
@@ -36,6 +37,13 @@ public enum Templater {
                 "Fans hit \(Int(stats.maxFanRPM.rounded())) RPM."
             )
         }
+        if !securityAgents.isEmpty {
+            let names = securityAgents.prefix(4).map { agentDisplayName($0) }
+            let suffix = securityAgents.count > 4 ? ", and \(securityAgents.count - 4) other agent(s)" : ""
+            sentences.append(
+                "Security/MDM agents observed during this window: \(names.joined(separator: ", "))\(suffix). They run with privileged scheduling regardless of how much CPU each one appears to use individually."
+            )
+        }
         if sentences.count == 1 {
             sentences.append(
                 "Top suspects ranked by combined energy / CPU / IO score; see the technical sections below."
@@ -49,6 +57,10 @@ public enum Templater {
         var actions: [String] = []
         if let pair = patterns.correlatedWriterReader {
             actions.append("Ask Security to add `\(pair.writer.name)`'s output paths to `\(pair.reader.name)`'s scanning exclusion list.")
+        }
+        if !securityAgents.isEmpty {
+            let names = securityAgents.prefix(3).map(agentDisplayName).joined(separator: ", ")
+            actions.append("Open a ticket with Security listing \(names) — share this report — and ask whether the agent(s) can be configured with development-workload exclusions.")
         }
         if patterns.thermalThrottle {
             actions.append("Capture an Activity Monitor sample.txt and a `pmset -g log` slice for the time window so you have a second source of truth.")
@@ -68,6 +80,11 @@ public enum Templater {
             suspectRationales: rationales,
             recommendedActions: actions
         )
+    }
+
+    static func agentDisplayName(_ suspect: Suspect) -> String {
+        let classification = SecurityAgents.classify(name: suspect.name, bundleID: suspect.bundleID)
+        return classification.displayName ?? suspect.name
     }
 
     static func templateRationale(for suspect: Suspect) -> String {

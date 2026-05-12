@@ -43,6 +43,7 @@ Keep them short. One page per ADR is the goal.
 | 0005 | [Window-integrated episode detector](0005-window-integrated-episode-detector.md)                              | Accepted |
 | 0006 | [Drop SMAppService helper from v1](0006-drop-smappservice-helper.md)                                          | Accepted |
 | 0007 | [IOReport for system power, not ri_energy_nj](0007-ioreport-for-system-power.md)                              | Accepted |
+| 0008 | [Always surface security/system agents in reports](0008-surface-security-agents.md)                           | Accepted |
 
 ## Process for future agents
 
