@@ -12,16 +12,13 @@ import WattSampling
 public actor ReportCoordinator {
     private let writer: SamplingWriter
     private let generator = ReportGenerator()
-    private let helperInstalled: () -> Bool
     public let version: String
 
     public init(
         writer: SamplingWriter,
-        helperInstalled: @escaping () -> Bool = { false },
         version: String = "0.1.0"
     ) {
         self.writer = writer
-        self.helperInstalled = helperInstalled
         self.version = version
     }
 
@@ -88,7 +85,6 @@ public actor ReportCoordinator {
             samples: samples,
             events: events,
             analysis: analysis,
-            helperInstalled: helperInstalled(),
             version: version
         )
         let report = Report(
@@ -140,7 +136,6 @@ public actor ReportCoordinator {
             samples: samples,
             events: events,
             analysis: analysis,
-            helperInstalled: helperInstalled(),
             version: version
         )
         let report = Report(

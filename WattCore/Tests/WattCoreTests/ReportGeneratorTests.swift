@@ -37,7 +37,6 @@ final class ReportGeneratorTests: XCTestCase {
             samples: withProcesses,
             events: [],
             analysis: analysis,
-            helperInstalled: false,
             now: Date(timeIntervalSinceReferenceDate: 800_000_000)
         )
         XCTAssertFalse(output.markdown.isEmpty)

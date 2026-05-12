@@ -56,7 +56,6 @@ final class MarkdownReportBuilderTests: XCTestCase {
             generatedByLLM: false,
             samples: inputs.samples,
             watteVersion: "0.1.0",
-            helperInstalled: false
         )
         let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
         let md = MarkdownReportBuilder.render(render, now: now)

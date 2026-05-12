@@ -25,7 +25,6 @@ public actor ReportGenerator {
         samples: [SamplePoint],
         events: [UserEventPoint],
         analysis: ProcessCorrelator.Result,
-        helperInstalled: Bool,
         version: String = "0.1.0",
         now: Date = Date()
     ) async -> Output {
@@ -48,8 +47,7 @@ public actor ReportGenerator {
             generatedByLLM: verdictResult.usedLLM,
             trigger: episode.trigger,
             samples: samples,
-            watteVersion: version,
-            helperInstalled: helperInstalled
+            watteVersion: version
         )
         let markdown = MarkdownReportBuilder.render(render, now: now)
 
