@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import WattModels
 import WattSampling
 
 public struct MenuBarView: View {
@@ -63,22 +62,9 @@ public struct MenuBarView: View {
                 Button("Quit") { NSApplication.shared.terminate(nil) }
                     .keyboardShortcut("q")
             }
-            Button {
-                revealReportsDirectory()
-            } label: {
-                Label("Show reports folder in Finder", systemImage: "folder")
-            }
-            .buttonStyle(.borderless)
-            .font(.caption)
         }
         .padding(12)
         .frame(width: 300)
-    }
-
-    private func revealReportsDirectory() {
-        if let url = try? WattStore.reportsDirectory() {
-            NSWorkspace.shared.open(url)
-        }
     }
 
     private var launchAtLoginBinding: Binding<Bool> {
