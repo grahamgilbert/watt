@@ -32,8 +32,10 @@ struct WattApp: App {
     var body: some Scene {
         MenuBarExtra {
             MenuBarView(coordinator: coordinator) {
+                NSApplication.shared.activate(ignoringOtherApps: true)
                 openWindow(id: "report")
             }
+            .task { coordinator.start() }
         } label: {
             Image(systemName: "bolt.batteryblock.fill")
         }
@@ -50,9 +52,9 @@ struct WattApp: App {
                 }
             )
             .modelContainer(container)
-            .task { coordinator.start() }
         }
         .windowStyle(.titleBar)
+        .windowResizability(.contentMinSize)
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("About Watt") {

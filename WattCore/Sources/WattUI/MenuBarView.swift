@@ -2,7 +2,7 @@ import SwiftUI
 import WattSampling
 
 public struct MenuBarView: View {
-    @Bindable var coordinator: SamplingCoordinator
+    let coordinator: SamplingCoordinator
     let openReport: () -> Void
 
     public init(coordinator: SamplingCoordinator, openReport: @escaping () -> Void) {

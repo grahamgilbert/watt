@@ -38,7 +38,7 @@ public final class SamplingCoordinator {
     }
 
     public var snapshot: Snapshot = .empty
-    public private(set) var samplingInterval: Duration = .seconds(30)
+    public private(set) var samplingInterval: Duration = .seconds(5)
 
     private let battery: BatterySampler
     private let host: HostStatsSampler
