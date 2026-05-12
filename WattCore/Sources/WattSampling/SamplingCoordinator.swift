@@ -57,6 +57,8 @@ public final class SamplingCoordinator {
     private var detector = EpisodeDetector()
     private var openEpisodeID: PersistentIdentifier?
     private var lastTickTimestamp: Date?
+    private var fastTickTask: Task<Void, Never>?
+    private var fastTickClients: Int = 0
 
     private var tickTask: Task<Void, Never>?
 
@@ -108,6 +110,53 @@ public final class SamplingCoordinator {
 
     public func recordUserNote(_ text: String) {
         userEvents.recordNote(text)
+    }
+
+    /// Activates a 1 s fast-refresh loop that updates the snapshot's
+    /// battery/CPU/memory/thermal/fan/temperature fields without paying for
+    /// a full per-process scan. Used by the report window so the user sees
+    /// numbers move in real time. Reference-counted so multiple views can
+    /// activate it without stepping on each other.
+    public func activateFastUpdates() {
+        fastTickClients += 1
+        guard fastTickTask == nil else { return }
+        fastTickTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                if Task.isCancelled { break }
+                await self?.fastTickOnce()
+            }
+        }
+    }
+
+    public func deactivateFastUpdates() {
+        guard fastTickClients > 0 else { return }
+        fastTickClients -= 1
+        if fastTickClients == 0 {
+            fastTickTask?.cancel()
+            fastTickTask = nil
+        }
+    }
+
+    private func fastTickOnce() async {
+        async let batteryR = battery.read()
+        async let hostR = host.read()
+        async let thermalR = thermal.read()
+        async let sensorsR = sensors.read()
+        let battery = await batteryR
+        let host = await hostR
+        let thermal = await thermalR
+        let sensors = await sensorsR
+        var snap = snapshot
+        snap.batteryPercent = battery.batteryPercent
+        snap.isCharging = battery.isCharging
+        snap.systemCPUUsage = host.systemCPUUsage
+        snap.memoryPressurePct = host.memoryPressurePct
+        snap.thermalState = thermal.rawValue
+        snap.maxFanRPM = sensors.fanRPM.max() ?? snap.maxFanRPM
+        snap.hottestSensorCelsius = sensors.temperatures.values.max() ?? snap.hottestSensorCelsius
+        snap.lastTick = Date()
+        snapshot = snap
     }
 
     public func tickOnce() async {
