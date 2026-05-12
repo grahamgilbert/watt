@@ -13,6 +13,7 @@
 		4CFB54C226B1CF2663401BCE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 11C2600FBE18C40B488C16C5 /* Assets.xcassets */; };
 		60370821D47442BCFFD76BCD /* Launchd.plist in Resources */ = {isa = PBXBuildFile; fileRef = 0CAAC9A47FC449BBF52D3D80 /* Launchd.plist */; };
 		6ADFEB6FD7A894732A5190F5 /* WattApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30BFAFE54BBFE4DBC8B49123 /* WattApp.swift */; };
+		C24CA64371685468C9F59C0C /* WattAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F38A2E33AA2FE0B67DCAD31 /* WattAppDelegate.swift */; };
 		E44204CDDCDAE062A6AD37AD /* WattHelper in Embed Dependencies */ = {isa = PBXBuildFile; fileRef = 61744F246D382A21FED5F134 /* WattHelper */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FBAA0149A257A6BA9C85BBE3 /* WattCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8C13F84BBA5E8B06D35AE312 /* WattCore */; };
 /* End PBXBuildFile section */
@@ -45,6 +46,7 @@
 		0CAAC9A47FC449BBF52D3D80 /* Launchd.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Launchd.plist; sourceTree = "<group>"; };
 		11C2600FBE18C40B488C16C5 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		30BFAFE54BBFE4DBC8B49123 /* WattApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WattApp.swift; sourceTree = "<group>"; };
+		4F38A2E33AA2FE0B67DCAD31 /* WattAppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WattAppDelegate.swift; sourceTree = "<group>"; };
 		61744F246D382A21FED5F134 /* WattHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = WattHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		668A58985254E7A97850A39C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		75BF85705AE578704E0E1CF3 /* WattHelperProtocol */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WattHelperProtocol; path = WattHelperProtocol; sourceTree = SOURCE_ROOT; };
@@ -114,6 +116,7 @@
 				D4EC5CD7EB446BE14307A397 /* Info.plist */,
 				9E731284F3D765EF9C791147 /* Watt.entitlements */,
 				30BFAFE54BBFE4DBC8B49123 /* WattApp.swift */,
+				4F38A2E33AA2FE0B67DCAD31 /* WattAppDelegate.swift */,
 			);
 			path = Watt;
 			sourceTree = "<group>";
@@ -265,6 +268,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				6ADFEB6FD7A894732A5190F5 /* WattApp.swift in Sources */,
+				C24CA64371685468C9F59C0C /* WattAppDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
