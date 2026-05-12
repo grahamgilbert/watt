@@ -69,5 +69,30 @@ public actor ReportCoordinator {
             modelTokenCount: output.modelTokenCount
         )
         try? await writer.writeReport(report, attachingTo: episodeID)
+        mirrorToDisk(
+            markdown: output.markdown,
+            generatedByLLM: output.generatedByLLM,
+            episodeStart: bounds.startedAt
+        )
+    }
+
+    /// Writes a copy of the Markdown to
+    /// `~/Library/Application Support/Watt/Reports/episode-<timestamp>.md` so
+    /// users can grep, share, or open the file directly. The SwiftData store
+    /// stays authoritative; this is just a mirror.
+    private func mirrorToDisk(markdown: String, generatedByLLM: Bool, episodeStart: Date) {
+        do {
+            let dir = try WattStore.reportsDirectory()
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd_HHmmss"
+            formatter.timeZone = .current
+            let stamp = formatter.string(from: episodeStart)
+            let suffix = generatedByLLM ? "ai" : "templated"
+            let filename = "episode-\(stamp)-\(suffix).md"
+            let url = dir.appending(path: filename, directoryHint: .notDirectory)
+            try markdown.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            // Non-fatal: SwiftData copy is the source of truth.
+        }
     }
 }

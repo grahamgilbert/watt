@@ -31,21 +31,25 @@ public struct ReportWindow: View {
             EpisodeListView(episodes: episodes, selection: $selectedEpisodeID)
                 .frame(minWidth: 220)
         } detail: {
-            if let id = selectedEpisodeID, let episode = episodes.first(where: { $0.persistentModelID == id }) {
-                ReportDetailView(
-                    episode: episode,
-                    coordinator: coordinator,
-                    onRecordNote: onRecordNote,
-                    onRegenerate: { onRegenerate(id) }
-                )
-            } else {
+            VStack(spacing: 0) {
                 LiveStatsHeader(coordinator: coordinator)
-                    .padding()
-                ContentUnavailableView(
-                    "No episode selected",
-                    systemImage: "battery.0",
-                    description: Text("Drain episodes will appear here as Watt observes them.")
-                )
+                    .padding(.horizontal, 12)
+                    .padding(.top, 12)
+                if let id = selectedEpisodeID,
+                   let episode = episodes.first(where: { $0.persistentModelID == id }) {
+                    ReportDetailView(
+                        episode: episode,
+                        onRecordNote: onRecordNote,
+                        onRegenerate: { onRegenerate(id) }
+                    )
+                } else {
+                    ContentUnavailableView(
+                        "No episode selected",
+                        systemImage: "battery.0",
+                        description: Text("Drain episodes will appear here as Watt observes them.")
+                    )
+                    .frame(maxHeight: .infinity)
+                }
             }
         }
         .navigationTitle("Watt — Reports")
@@ -166,7 +170,6 @@ public struct EpisodeRow: View {
 
 public struct ReportDetailView: View {
     let episode: DrainEpisode
-    let coordinator: SamplingCoordinator
     let onRecordNote: (String) -> Void
     let onRegenerate: () -> Void
     @State private var noteText: String = ""
@@ -174,12 +177,10 @@ public struct ReportDetailView: View {
 
     public init(
         episode: DrainEpisode,
-        coordinator: SamplingCoordinator,
         onRecordNote: @escaping (String) -> Void,
         onRegenerate: @escaping () -> Void
     ) {
         self.episode = episode
-        self.coordinator = coordinator
         self.onRecordNote = onRecordNote
         self.onRegenerate = onRegenerate
     }
@@ -187,7 +188,6 @@ public struct ReportDetailView: View {
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                LiveStatsHeader(coordinator: coordinator)
                 header
                 if let report = episode.reports.max(by: { $0.generatedAt < $1.generatedAt }) {
                     StructuredText(markdown: report.markdown)
@@ -252,6 +252,17 @@ public struct ReportDetailView: View {
                 Label("Export .md", systemImage: "square.and.arrow.up")
             }
             .disabled(latestReport == nil)
+            Button {
+                revealReportsDirectory()
+            } label: {
+                Label("Reports folder", systemImage: "folder")
+            }
+        }
+    }
+
+    private func revealReportsDirectory() {
+        if let url = try? WattStore.reportsDirectory() {
+            NSWorkspace.shared.open(url)
         }
     }
 

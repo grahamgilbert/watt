@@ -36,6 +36,20 @@ WattHelperProtocol/    SwiftPM package: shared XPC protocol
 
 See `/Users/graham_gilbert/.claude/plans/i-want-to-write-wiggly-elephant.md` for full design notes.
 
+## Where reports live
+
+Watt persists every report inside its SwiftData store at
+`~/Library/Application Support/Watt/store.sqlite`. On every report
+generation it also writes a Markdown mirror to:
+
+```
+~/Library/Application Support/Watt/Reports/episode-<timestamp>-<ai|templated>.md
+```
+
+The "Show reports folder in Finder" button in the menubar opens that
+directory directly. The mirrored files are plain UTF-8 Markdown — paste
+them into Slack, share via gist, or just `grep` them.
+
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).
