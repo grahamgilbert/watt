@@ -32,7 +32,7 @@ Watt/                  Menubar app target (LSUIElement = YES)
 WattCore/              SwiftPM package: models, sampling, analysis, AI, UI
 ```
 
-See `/Users/graham_gilbert/.claude/plans/i-want-to-write-wiggly-elephant.md` for full design notes.
+See [`docs/adr/`](docs/adr/) for architectural decision records, and [`CLAUDE.md`](CLAUDE.md) for contributor / agent instructions.
 
 ## Where reports live
 
