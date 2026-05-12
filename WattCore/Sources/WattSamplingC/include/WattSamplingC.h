@@ -65,4 +65,36 @@ typedef struct {
 int watt_read_temperatures(watt_temp_reading_t *out, int out_capacity);
 int watt_read_fans(watt_fan_reading_t *out, int out_capacity);
 
+/*
+ * IOReport bridge — system / per-cluster power
+ * ────────────────────────────────────────────
+ * Reads cumulative joules counters out of IOKit's IOReport framework. The
+ * framework is exported from IOKit.framework but its headers ship in the
+ * private IOReport.framework, so we resolve symbols via dlopen.
+ *
+ * Lifecycle:
+ *   watt_ioreport_open()    -> 0 on success, -1 on failure (treat as
+ *                              "no IOReport support, fall back").
+ *   watt_ioreport_sample()  -> reads the latest cumulative counters into the
+ *                              buffer and returns elapsed-since-prior. The
+ *                              first call seeds the prior values and returns
+ *                              0 watts; subsequent calls return real data.
+ *   watt_ioreport_close()   -> tears the subscription down.
+ *
+ * `watt_power_sample_t` is the per-tick aggregate exposed to Swift. All
+ * fields are joules-per-second across the elapsed interval.
+ */
+typedef struct {
+    double total_watts;     /* package + cluster + GPU + neural; whole SoC */
+    double cpu_watts;       /* sum of P-cluster + E-cluster */
+    double gpu_watts;
+    double ane_watts;       /* Apple Neural Engine */
+    double dram_watts;
+    double elapsed_seconds; /* time since last call to sample(), 0 on first */
+} watt_power_sample_t;
+
+int  watt_ioreport_open(void);
+int  watt_ioreport_sample(watt_power_sample_t *out);
+void watt_ioreport_close(void);
+
 #endif /* WATT_SAMPLING_C_H */

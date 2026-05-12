@@ -10,7 +10,7 @@ final class EpisodeDetectorTests: XCTestCase {
     // tests exercise the same threshold the live app uses.
     private static let fastConfig = EpisodeDetector.Configuration(
         batteryDrainThresholdPctOverWindow: 5,
-        acHighEnergyThresholdMeanWatts: 3,
+        acHighEnergyThresholdMeanWatts: 18,
         endThresholdDivisor: 2,
         stickyCount: 3,
         windowSeconds: 60,
@@ -180,10 +180,10 @@ final class EpisodeDetectorTests: XCTestCase {
 
     func testIdleACDoesNotTrigger() {
         var detector = EpisodeDetector(configuration: Self.fastConfig)
-        let idle = Fixtures.acHighEnergy(watts: 1, count: 30, step: 5)
+        let idle = Fixtures.acHighEnergy(watts: 8, count: 30, step: 5)
         for sample in idle { _ = detector.feed(sample) }
         XCTAssertFalse(detector.inEpisode,
-                       "Steady 1 W idle on AC must never trigger")
+                       "Steady 8 W idle (typical M-series idle) must not trigger")
     }
 
     func testEndsACEpisodeOnUnplug() {

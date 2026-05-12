@@ -52,6 +52,7 @@ public final class SamplingCoordinator {
     private let sensors: AppleSensorsSampler
     private let proc: ProcSampler
     private let fsEvents: FSEventsSampler
+    private let power: PowerSampler
     private var userEvents: UserEventRecorder!
     private let writer: SamplingWriter
     private var detector = EpisodeDetector()
@@ -69,7 +70,8 @@ public final class SamplingCoordinator {
         thermal: ThermalSampler = ThermalSampler(),
         sensors: AppleSensorsSampler = AppleSensorsSampler(),
         proc: ProcSampler = ProcSampler(),
-        fsEvents: FSEventsSampler = FSEventsSampler()
+        fsEvents: FSEventsSampler = FSEventsSampler(),
+        power: PowerSampler = PowerSampler()
     ) {
         self.writer = writer
         self.battery = battery
@@ -78,6 +80,7 @@ public final class SamplingCoordinator {
         self.sensors = sensors
         self.proc = proc
         self.fsEvents = fsEvents
+        self.power = power
         let writerRef = writer
         self.userEvents = UserEventRecorder { event in
             Task { try? await writerRef.writeUserEvent(event) }
@@ -165,15 +168,19 @@ public final class SamplingCoordinator {
         async let thermalR = thermal.read()
         async let sensorsR = sensors.read()
         async let procR = proc.read()
+        async let powerR = power.read()
         let battery = await batteryR
         let host = await hostR
         let thermal = await thermalR
         let sensors = await sensorsR
         let proc = await procR
+        let powerReading = await powerR
         let fsRate = fsEvents.consumeRate()
 
         let now = Date()
-        let watts = computeSystemEnergyWatts(at: now, processes: proc.processes)
+        let watts = powerReading.available
+            ? powerReading.totalWatts
+            : computeFallbackWatts(at: now, processes: proc.processes)
 
         let point = SamplePoint(
             timestamp: now,
@@ -244,11 +251,11 @@ public final class SamplingCoordinator {
         )
     }
 
-    /// Sums per-process kernel-billed energy across the current tick and
-    /// divides by the seconds since the previous tick to get watts.
-    /// `ri_energy_nj` is the field the kernel uses to charge processes for
-    /// power accounting and is correct on AC and battery alike.
-    private func computeSystemEnergyWatts(at timestamp: Date, processes: [ProcessPoint]) -> Double {
+    /// Fallback used only when IOReport is unavailable (extremely unusual on
+    /// macOS 26). Sums per-process kernel-billed energy and divides by the
+    /// elapsed wall-clock interval. Significantly under-counts true wall
+    /// power (no GPU/display/idle-floor accounting) but better than zero.
+    private func computeFallbackWatts(at timestamp: Date, processes: [ProcessPoint]) -> Double {
         let totalNanojoules = processes.reduce(into: UInt64(0)) { acc, proc in
             acc &+= proc.energyNanojoulesDelta
         }
@@ -260,7 +267,6 @@ public final class SamplingCoordinator {
             return max(timestamp.timeIntervalSince(prior), 0.5)
         }()
         lastTickTimestamp = timestamp
-        // 1 W = 1 J/s = 1e9 nJ/s.
         return Double(totalNanojoules) / 1_000_000_000.0 / elapsed
     }
 

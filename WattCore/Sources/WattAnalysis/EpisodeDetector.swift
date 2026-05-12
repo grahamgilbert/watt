@@ -20,11 +20,12 @@ public struct EpisodeDetector: Sendable {
         /// far above idle on a typical M-series laptop, well below a runaway.
         public var batteryDrainThresholdPctOverWindow: Double
         /// AC: minimum mean wattage across the window required to trigger.
-        /// Calibrated against `ri_energy_nj`-derived numbers, which only
-        /// account for kernel-billed per-process energy (not GPU/display/
-        /// idle floor). Empirically, idle on M-series sits around 1 W via
-        /// this signal, real workloads land around 5 W. 3 W as the
-        /// threshold cleanly separates the two without false positives.
+        /// Calibrated for IOReport-derived true system power (CPU + GPU +
+        /// ANE + DRAM). Apple Silicon idle is ~3-6 W; real workloads
+        /// (compilation, browsing, security-agent scanning) sit at 15-30 W;
+        /// sustained heavy load is 30+ W. 18 W cleanly separates idle from
+        /// "this is doing real work that an engineer would want to know
+        /// about."
         public var acHighEnergyThresholdMeanWatts: Double
         /// End thresholds are computed as start / divisor.
         public var endThresholdDivisor: Double
@@ -42,7 +43,7 @@ public struct EpisodeDetector: Sendable {
 
         public init(
             batteryDrainThresholdPctOverWindow: Double = 5,
-            acHighEnergyThresholdMeanWatts: Double = 3,
+            acHighEnergyThresholdMeanWatts: Double = 18,
             endThresholdDivisor: Double = 2,
             stickyCount: Int = 3,
             windowSeconds: TimeInterval = 600,
