@@ -83,7 +83,7 @@ let package = Package(
         ),
         .testTarget(
             name: "WattCoreTests",
-            dependencies: ["WattModels", "WattAnalysis", "WattAI", "WattSampling"],
+            dependencies: ["WattModels", "WattAnalysis", "WattAI", "WattSampling", "WattUI"],
             resources: [.process("Snapshots")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         )

@@ -3,10 +3,16 @@ import WattSampling
 
 public struct MenuBarView: View {
     let coordinator: SamplingCoordinator
+    let loginItem: LoginItemController
     let openReport: () -> Void
 
-    public init(coordinator: SamplingCoordinator, openReport: @escaping () -> Void) {
+    public init(
+        coordinator: SamplingCoordinator,
+        loginItem: LoginItemController,
+        openReport: @escaping () -> Void
+    ) {
         self.coordinator = coordinator
+        self.loginItem = loginItem
         self.openReport = openReport
     }
 
@@ -25,6 +31,17 @@ public struct MenuBarView: View {
             Divider()
             statRows
             Divider()
+            Toggle("Launch at login", isOn: launchAtLoginBinding)
+                .toggleStyle(.checkbox)
+                .font(.system(size: 12))
+            if loginItem.status == .requiresApproval {
+                Button("Approve in System Settings…") {
+                    loginItem.openSystemSettings()
+                }
+                .font(.caption)
+                .controlSize(.small)
+            }
+            Divider()
             HStack {
                 Button("Open Reports", action: openReport)
                 Spacer()
@@ -34,6 +51,13 @@ public struct MenuBarView: View {
         }
         .padding(12)
         .frame(width: 300)
+    }
+
+    private var launchAtLoginBinding: Binding<Bool> {
+        Binding(
+            get: { loginItem.isEnabled },
+            set: { loginItem.setEnabled($0) }
+        )
     }
 
     @ViewBuilder

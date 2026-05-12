@@ -12,6 +12,7 @@ struct WattApp: App {
     @Environment(\.openWindow) private var openWindow
     private let container: ModelContainer
     @State private var coordinator: SamplingCoordinator
+    @State private var loginItem: LoginItemController
     private let reportCoordinator: ReportCoordinator
     private let helperClient = HelperClient()
 
@@ -26,16 +27,20 @@ struct WattApp: App {
         let writer = SamplingWriter(modelContainer: container)
         let coordinator = SamplingCoordinator(writer: writer)
         self._coordinator = State(initialValue: coordinator)
+        self._loginItem = State(initialValue: LoginItemController())
         self.reportCoordinator = ReportCoordinator(writer: writer)
     }
 
     var body: some Scene {
         MenuBarExtra {
-            MenuBarView(coordinator: coordinator) {
+            MenuBarView(coordinator: coordinator, loginItem: loginItem) {
                 NSApplication.shared.activate(ignoringOtherApps: true)
                 openWindow(id: "report")
             }
-            .task { coordinator.start() }
+            .task {
+                coordinator.start()
+                loginItem.registerDefaultIfNeeded()
+            }
         } label: {
             Image(systemName: "bolt.batteryblock.fill")
         }
