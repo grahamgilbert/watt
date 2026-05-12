@@ -1,6 +1,6 @@
 # 0006. Drop SMAppService helper from v1
 
-* **Status:** Accepted
+* **Status:** **Superseded by [ADR 0009](0009-mandatory-privileged-helper.md)**
 * **Date:** 2026-05-12
 * **Deciders:** Graham, Claude
 

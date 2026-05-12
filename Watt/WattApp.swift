@@ -2,6 +2,8 @@ import SwiftData
 import SwiftUI
 import WattAI
 import WattAnalysis
+import WattHelperClient
+import WattHelperProtocol
 import WattModels
 import WattSampling
 import WattUI
@@ -13,6 +15,8 @@ struct WattApp: App {
     @State private var coordinator: SamplingCoordinator
     @State private var loginItem: LoginItemController
     @State private var progress: ReportProgress
+    @State private var helperGate: HelperGate
+    @State private var samplingStarted = false
     private let reportCoordinator: ReportCoordinator
 
     init() {
@@ -28,6 +32,9 @@ struct WattApp: App {
         self._coordinator = State(initialValue: coordinator)
         self._loginItem = State(initialValue: LoginItemController())
         self._progress = State(initialValue: ReportProgress())
+        self._helperGate = State(initialValue: HelperGate(
+            expectedProtocolVersion: WattHelperProtocolVersion
+        ))
         self.reportCoordinator = ReportCoordinator(writer: writer)
     }
 
@@ -80,8 +87,19 @@ struct WattApp: App {
                 }
             )
             .task {
-                coordinator.start()
-                loginItem.registerDefaultIfNeeded()
+                await helperGate.evaluate()
+                if case .ready = helperGate.state, !samplingStarted {
+                    samplingStarted = true
+                    coordinator.start()
+                    loginItem.registerDefaultIfNeeded()
+                }
+            }
+            .onChange(of: gateReadinessKey) { _, _ in
+                if case .ready = helperGate.state, !samplingStarted {
+                    samplingStarted = true
+                    coordinator.start()
+                    loginItem.registerDefaultIfNeeded()
+                }
             }
         } label: {
             Image(systemName: "bolt.batteryblock.fill")
@@ -89,23 +107,33 @@ struct WattApp: App {
         .menuBarExtraStyle(.window)
 
         Window("Watt — Reports", id: "report") {
-            ReportWindow(
-                coordinator: coordinator,
-                progress: progress,
-                onRecordNote: { note in
-                    coordinator.recordUserNote(note)
-                },
-                onRegenerate: { id in
-                    runRegenerate(id: id)
-                },
-                onAdHocReport: { lookback in
-                    runAdHoc(lookback: lookback)
-                },
-                onDeleteEpisode: { id in
-                    runDelete(id: id)
+            ZStack {
+                ReportWindow(
+                    coordinator: coordinator,
+                    progress: progress,
+                    onRecordNote: { note in
+                        coordinator.recordUserNote(note)
+                    },
+                    onRegenerate: { id in
+                        runRegenerate(id: id)
+                    },
+                    onAdHocReport: { lookback in
+                        runAdHoc(lookback: lookback)
+                    },
+                    onDeleteEpisode: { id in
+                        runDelete(id: id)
+                    }
+                )
+                .modelContainer(container)
+                .disabled(!isReady)
+
+                if !isReady {
+                    Color.black.opacity(0.35).ignoresSafeArea()
+                    HelperInstallSheet(gate: helperGate)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                        .shadow(radius: 16)
                 }
-            )
-            .modelContainer(container)
+            }
         }
         .windowStyle(.titleBar)
         .windowResizability(.contentMinSize)
@@ -115,6 +143,24 @@ struct WattApp: App {
                     NSApplication.shared.orderFrontStandardAboutPanel(nil)
                 }
             }
+        }
+    }
+
+    private var isReady: Bool {
+        if case .ready = helperGate.state { return true }
+        return false
+    }
+
+    /// onChange in SwiftUI compares this key — bumping every time the gate
+    /// changes phase. We can't compare HelperGate.State directly inside
+    /// onChange without making it Equatable across the @Observable boundary.
+    private var gateReadinessKey: Int {
+        switch helperGate.state {
+        case .ready:           return 1
+        case .checking:        return 0
+        case .needsInstall:    return 2
+        case .installing:      return 3
+        case .installFailed:   return 4
         }
     }
 }

@@ -10,10 +10,12 @@ let package = Package(
             "WattSampling",
             "WattAnalysis",
             "WattAI",
+            "WattHelperClient",
             "WattUI"
         ])
     ],
     dependencies: [
+        .package(path: "../WattHelperProtocol"),
         // gonzalezreal/textual is the successor to swift-markdown-ui. No tagged
         // releases yet, pin to a specific commit on main.
         .package(
@@ -34,11 +36,19 @@ let package = Package(
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(
+            name: "WattHelperClient",
+            dependencies: [
+                .product(name: "WattHelperProtocol", package: "WattHelperProtocol")
+            ],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .target(
             name: "WattSampling",
             dependencies: [
                 "WattModels",
                 "WattAnalysis",
-                "WattSamplingC"
+                "WattSamplingC",
+                "WattHelperClient"
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -66,6 +76,7 @@ let package = Package(
                 "WattAnalysis",
                 "WattAI",
                 "WattSampling",
+                "WattHelperClient",
                 .product(name: "Textual", package: "textual")
             ],
             swiftSettings: [.swiftLanguageMode(.v6)]

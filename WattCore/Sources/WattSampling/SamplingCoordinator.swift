@@ -51,6 +51,7 @@ public final class SamplingCoordinator {
     private let thermal: ThermalSampler
     private let sensors: AppleSensorsSampler
     private let proc: ProcSampler
+    private let helperProc: HelperProcSampler
     private let fsEvents: FSEventsSampler
     private let power: PowerSampler
     private var userEvents: UserEventRecorder!
@@ -70,6 +71,7 @@ public final class SamplingCoordinator {
         thermal: ThermalSampler = ThermalSampler(),
         sensors: AppleSensorsSampler = AppleSensorsSampler(),
         proc: ProcSampler = ProcSampler(),
+        helperProc: HelperProcSampler = HelperProcSampler(),
         fsEvents: FSEventsSampler = FSEventsSampler(),
         power: PowerSampler = PowerSampler()
     ) {
@@ -79,6 +81,7 @@ public final class SamplingCoordinator {
         self.thermal = thermal
         self.sensors = sensors
         self.proc = proc
+        self.helperProc = helperProc
         self.fsEvents = fsEvents
         self.power = power
         let writerRef = writer
@@ -168,19 +171,30 @@ public final class SamplingCoordinator {
         async let thermalR = thermal.read()
         async let sensorsR = sensors.read()
         async let procR = proc.read()
+        async let helperProcR = helperProc.read()
         async let powerR = power.read()
         let battery = await batteryR
         let host = await hostR
         let thermal = await thermalR
         let sensors = await sensorsR
         let proc = await procR
+        let helperProcesses = await helperProcR
         let powerReading = await powerR
         let fsRate = fsEvents.consumeRate()
+
+        // Merge: helper data wins for any pid the unprivileged ProcSampler
+        // can't see (Endpoint Security extensions like Falcon). For pids
+        // both report on, prefer the unprivileged reading because its
+        // bundleID resolution is more accurate.
+        let merged = mergeProcessReadings(
+            unprivileged: proc.processes,
+            helper: helperProcesses
+        )
 
         let now = Date()
         let watts = powerReading.available
             ? powerReading.totalWatts
-            : computeFallbackWatts(at: now, processes: proc.processes)
+            : computeFallbackWatts(at: now, processes: merged)
 
         let point = SamplePoint(
             timestamp: now,
@@ -195,7 +209,7 @@ public final class SamplingCoordinator {
             fanRPM: sensors.fanRPM,
             temperatures: sensors.temperatures,
             fsEventsRate: fsRate,
-            processes: proc.processes
+            processes: merged
         )
         try? await writer.writeSample(point: point)
         await reactToEpisodes(point: point)
@@ -249,6 +263,25 @@ public final class SamplingCoordinator {
             lastTick: point.timestamp,
             inEpisode: detector.inEpisode
         )
+    }
+
+    /// Merge the unprivileged ProcSampler reading with the helper reading.
+    /// For pids both samplers report on, the unprivileged reading wins
+    /// (better bundleID resolution via NSRunningApplication). For pids only
+    /// the helper sees — typically root-owned Endpoint Security extensions
+    /// like CrowdStrike Falcon — we keep the helper's data.
+    private func mergeProcessReadings(
+        unprivileged: [ProcessPoint],
+        helper: [ProcessPoint]
+    ) -> [ProcessPoint] {
+        var byPid: [Int32: ProcessPoint] = [:]
+        for point in helper {
+            byPid[point.pid] = point
+        }
+        for point in unprivileged {
+            byPid[point.pid] = point
+        }
+        return Array(byPid.values)
     }
 
     /// Fallback used only when IOReport is unavailable (extremely unusual on

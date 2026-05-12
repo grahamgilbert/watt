@@ -41,9 +41,10 @@ Keep them short. One page per ADR is the goal.
 | 0003 | [On-device verdict via FoundationModels with deterministic fallback](0003-foundation-models-with-fallback.md) | Accepted |
 | 0004 | [Markdown report body is the source of truth](0004-markdown-as-source-of-truth.md)                            | Accepted |
 | 0005 | [Window-integrated episode detector](0005-window-integrated-episode-detector.md)                              | Accepted |
-| 0006 | [Drop SMAppService helper from v1](0006-drop-smappservice-helper.md)                                          | Accepted |
+| 0006 | [Drop SMAppService helper from v1](0006-drop-smappservice-helper.md)                                          | Superseded by 0009 |
 | 0007 | [IOReport for system power, not ri_energy_nj](0007-ioreport-for-system-power.md)                              | Accepted |
 | 0008 | [Always surface security/system agents in reports](0008-surface-security-agents.md)                           | Accepted |
+| 0009 | [Mandatory privileged helper for Endpoint Security visibility](0009-mandatory-privileged-helper.md)           | Accepted |
 
 ## Process for future agents
 

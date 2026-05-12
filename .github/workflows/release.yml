@@ -95,16 +95,24 @@ jobs:
           rm -f "build/release/Watt.zip"
           ditto -c -k --sequesterRsrc --keepParent "build/release/Watt.app" \
             "build/release/Watt-${VERSION}.zip"
-          # Optional: also build a DMG so users can drag-to-Applications.
+          # Stage the DMG layout so we can include the uninstall script.
+          DMG_STAGE="build/release/dmg-stage"
+          rm -rf "$DMG_STAGE"
+          mkdir -p "$DMG_STAGE"
+          cp -R "build/release/Watt.app" "$DMG_STAGE/Watt.app"
+          cp scripts/uninstall.sh "$DMG_STAGE/uninstall.sh"
+          chmod +x "$DMG_STAGE/uninstall.sh"
+          # Build the DMG.
           create-dmg \
             --volname "Watt ${VERSION}" \
-            --window-size 540 360 \
+            --window-size 600 400 \
             --icon-size 96 \
             --icon "Watt.app" 140 180 \
             --app-drop-link 400 180 \
+            --icon "uninstall.sh" 270 320 \
             --no-internet-enable \
             "build/release/Watt-${VERSION}.dmg" \
-            "build/release/Watt.app" || echo "create-dmg failed (non-fatal)"
+            "$DMG_STAGE" || echo "create-dmg failed (non-fatal)"
 
       - name: Notarize and staple DMG
         if: hashFiles('build/release/*.dmg') != ''
