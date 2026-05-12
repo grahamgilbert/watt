@@ -62,6 +62,7 @@ public struct ProcessCorrelator: Sendable {
                 pid: entry.pid,
                 name: entry.name,
                 bundleID: entry.bundleID,
+                executablePath: entry.executablePath,
                 totalCPUTime: entry.totalCPUTime,
                 totalEnergyNanojoules: entry.totalEnergyNanojoules,
                 totalDiskReadBytes: entry.totalDiskReadBytes,
@@ -77,7 +78,13 @@ public struct ProcessCorrelator: Sendable {
         // they scored below threshold. De-dupe by pid so we don't double-
         // list an agent that organically made the cut.
         let securityAgentSuspects = scored
-            .filter { SecurityAgents.classify(name: $0.name, bundleID: $0.bundleID).isAgent }
+            .filter {
+                SecurityAgents.classify(
+                    name: $0.name,
+                    bundleID: $0.bundleID,
+                    executablePath: $0.executablePath
+                ).isAgent
+            }
             .sorted { $0.score > $1.score }
         for agent in securityAgentSuspects where !top.contains(where: { $0.pid == agent.pid }) {
             top.append(agent)
@@ -92,6 +99,7 @@ public struct ProcessCorrelator: Sendable {
         var pid: Int32
         var name: String
         var bundleID: String?
+        var executablePath: String?
         var totalCPUTime: Double = 0
         var totalEnergyNanojoules: UInt64 = 0
         var totalBilledEnergy: UInt64 = 0
@@ -109,9 +117,11 @@ public struct ProcessCorrelator: Sendable {
                 var entry = byPid[proc.pid] ?? AggregateEntry(
                     pid: proc.pid,
                     name: proc.name,
-                    bundleID: proc.bundleID
+                    bundleID: proc.bundleID,
+                    executablePath: proc.executablePath
                 )
                 if entry.bundleID == nil { entry.bundleID = proc.bundleID }
+                if entry.executablePath == nil { entry.executablePath = proc.executablePath }
                 if entry.name.isEmpty { entry.name = proc.name }
                 entry.totalCPUTime += proc.cpuTimeDelta
                 entry.totalEnergyNanojoules &+= proc.energyNanojoulesDelta

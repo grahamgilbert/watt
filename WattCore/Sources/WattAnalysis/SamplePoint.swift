@@ -80,6 +80,10 @@ public struct ProcessPoint: Sendable, Hashable {
     public var pid: Int32
     public var name: String
     public var bundleID: String?
+    /// Absolute executable path from `proc_pidpath`. Used by the agent
+    /// matcher to detect processes that live in /Library/SystemExtensions
+    /// or whose path matches a LaunchDaemon's Program/ProgramArguments.
+    public var executablePath: String?
     public var cpuTimeDelta: Double
     public var energyNanojoulesDelta: UInt64
     public var billedEnergyDelta: UInt64
@@ -92,6 +96,7 @@ public struct ProcessPoint: Sendable, Hashable {
         pid: Int32,
         name: String,
         bundleID: String? = nil,
+        executablePath: String? = nil,
         cpuTimeDelta: Double,
         energyNanojoulesDelta: UInt64,
         billedEnergyDelta: UInt64,
@@ -103,6 +108,7 @@ public struct ProcessPoint: Sendable, Hashable {
         self.pid = pid
         self.name = name
         self.bundleID = bundleID
+        self.executablePath = executablePath
         self.cpuTimeDelta = cpuTimeDelta
         self.energyNanojoulesDelta = energyNanojoulesDelta
         self.billedEnergyDelta = billedEnergyDelta
@@ -117,6 +123,7 @@ public struct ProcessPoint: Sendable, Hashable {
             pid: ps.pid,
             name: ps.name,
             bundleID: ps.bundleID,
+            executablePath: ps.executablePath,
             cpuTimeDelta: ps.cpuTimeDelta,
             energyNanojoulesDelta: ps.energyNanojoulesDelta,
             billedEnergyDelta: ps.billedEnergyDelta,

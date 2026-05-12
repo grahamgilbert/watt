@@ -29,6 +29,7 @@ public actor SamplingWriter {
                 pid: proc.pid,
                 name: proc.name,
                 bundleID: proc.bundleID,
+                executablePath: proc.executablePath,
                 cpuTimeDelta: proc.cpuTimeDelta,
                 energyNanojoulesDelta: proc.energyNanojoulesDelta,
                 billedEnergyDelta: proc.billedEnergyDelta,

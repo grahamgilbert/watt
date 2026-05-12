@@ -4,6 +4,7 @@ public struct Suspect: Sendable, Hashable, Codable {
     public var pid: Int32
     public var name: String
     public var bundleID: String?
+    public var executablePath: String?
     public var totalCPUTime: Double
     public var totalEnergyNanojoules: UInt64
     public var totalDiskReadBytes: UInt64
@@ -17,6 +18,7 @@ public struct Suspect: Sendable, Hashable, Codable {
         pid: Int32,
         name: String,
         bundleID: String? = nil,
+        executablePath: String? = nil,
         totalCPUTime: Double,
         totalEnergyNanojoules: UInt64,
         totalDiskReadBytes: UInt64,
@@ -29,6 +31,7 @@ public struct Suspect: Sendable, Hashable, Codable {
         self.pid = pid
         self.name = name
         self.bundleID = bundleID
+        self.executablePath = executablePath
         self.totalCPUTime = totalCPUTime
         self.totalEnergyNanojoules = totalEnergyNanojoules
         self.totalDiskReadBytes = totalDiskReadBytes

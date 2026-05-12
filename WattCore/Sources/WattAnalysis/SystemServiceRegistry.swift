@@ -1,52 +1,54 @@
 import Foundation
 
-/// Builds a set of "system-managed" process names by reading all installed
-/// LaunchDaemons and System Extensions on the host. Any process whose name
-/// matches one of these is almost certainly a privileged background service
-/// — and on a corporate-managed Mac, the overwhelming majority of such
-/// services are security/observability/MDM agents.
-///
-/// This complements the curated `SecurityAgents` registry: the registry
-/// gives us friendly display names and descriptions for known-popular
-/// vendors, this gives us full coverage of whatever IT happens to ship on a
-/// given laptop (including in-house tools that wouldn't be in any list).
 public enum SystemServiceKind: String, Sendable {
     case launchDaemon
     case systemExtension
     case endpointSecurityExtension
 }
 
+/// Builds a registry of "system-managed" services on the host: every
+/// LaunchDaemon plist in `/Library/LaunchDaemons` and every System Extension
+/// in `/Library/SystemExtensions`.
+///
+/// Matching against a running process is **strict**:
+///   1. The process's absolute executable path (from `proc_pidpath`) is
+///      compared against the daemon's `Program` / `ProgramArguments[0]` and
+///      the system extension bundle's `Contents/MacOS/<exec>` path.
+///   2. Failing that, the bundle ID is compared exact-prefix against the
+///      daemon Label / extension CFBundleIdentifier.
+///
+/// We deliberately do NOT do substring matches on process names. The earlier
+/// version of this matcher would flag e.g. `OfficeLicensingHelper` as a
+/// security agent because the substring "office" appeared somewhere — that's
+/// noise. Path-based matching is precise and matches what `systemextensionsctl
+/// list` or `launchctl print system/<label>` would tell you.
 public enum SystemServiceRegistry {
 
     public struct Service: Sendable, Hashable {
-        /// Either the launchd Label (when discovered from a daemon plist) or
-        /// the System Extension bundle identifier.
         public let label: String
-        /// The executable path or display name we'll match against running
-        /// process names / bundle IDs.
-        public let matchTokens: [String]
-        /// Source of the entry — useful for the rationale string.
+        /// Absolute executable paths the kernel might run for this service.
+        public let executablePaths: [String]
+        /// Bundle-id prefixes (used as a secondary signal when path matching
+        /// fails). Empty for daemons whose plist doesn't declare one.
+        public let bundleIDPrefixes: [String]
         public let kind: SystemServiceKind
     }
 
-    /// Loaded once and cached. Callers should treat this as immutable for
-    /// the lifetime of the process; the underlying file system rarely
-    /// changes within a single Watt session.
     private static let cache = Cache()
 
     public static func services() -> [Service] { cache.services }
 
-    public static func match(name: String, bundleID: String?) -> Service? {
-        cache.match(name: name, bundleID: bundleID)
+    public static func match(executablePath: String?, bundleID: String?) -> Service? {
+        cache.match(executablePath: executablePath, bundleID: bundleID)
     }
 
-    public static func isSystemManaged(name: String, bundleID: String? = nil) -> Bool {
-        match(name: name, bundleID: bundleID) != nil
+    public static func isSystemManaged(executablePath: String?, bundleID: String? = nil) -> Bool {
+        match(executablePath: executablePath, bundleID: bundleID) != nil
     }
 
     private final class Cache: @unchecked Sendable {
         let services: [Service]
-        private let nameIndex: [String: Service]
+        private let pathIndex: [String: Service]
         private let bundleIndex: [String: Service]
 
         init() {
@@ -55,42 +57,42 @@ public enum SystemServiceRegistry {
             found.append(contentsOf: Self.loadSystemExtensions())
 
             self.services = found
-            var nameIdx: [String: Service] = [:]
-            var bundleIdx: [String: Service] = [:]
+            var pIdx: [String: Service] = [:]
+            var bIdx: [String: Service] = [:]
             for svc in found {
-                for token in svc.matchTokens {
-                    let lower = token.lowercased()
-                    if !lower.isEmpty {
-                        nameIdx[lower] = svc
-                    }
+                for p in svc.executablePaths {
+                    pIdx[p] = svc
                 }
-                let lower = svc.label.lowercased()
-                if !lower.isEmpty {
-                    bundleIdx[lower] = svc
+                for prefix in svc.bundleIDPrefixes {
+                    bIdx[prefix.lowercased()] = svc
                 }
+                bIdx[svc.label.lowercased()] = svc
             }
-            self.nameIndex = nameIdx
-            self.bundleIndex = bundleIdx
+            self.pathIndex = pIdx
+            self.bundleIndex = bIdx
         }
 
-        func match(name: String, bundleID: String?) -> Service? {
-            if let bundleID, let svc = bundleIndex[bundleID.lowercased()] { return svc }
-            let lower = name.lowercased()
-            if let svc = nameIndex[lower] { return svc }
-            // Fallback: substring match against the executable basename. Many
-            // helper processes ship with names like "com.example.agentHelper"
-            // that won't exact-match a launchd Label but contain it.
-            for (token, svc) in nameIndex where lower.contains(token) || token.contains(lower) {
+        func match(executablePath: String?, bundleID: String?) -> Service? {
+            // 1. Exact executable-path match: the strongest signal. If the
+            //    OS is running this exact binary, and the binary is what the
+            //    LaunchDaemon plist or SystemExtension bundle declares, we
+            //    are looking at that service.
+            if let path = executablePath, let svc = pathIndex[path] {
                 return svc
+            }
+            // 2. Bundle-ID prefix match. We only treat this as authoritative
+            //    when the bundle ID is non-empty and starts with one of the
+            //    declared prefixes (no fuzzy substring).
+            if let lower = bundleID?.lowercased() {
+                for (prefix, svc) in bundleIndex where lower == prefix || lower.hasPrefix(prefix + ".") {
+                    return svc
+                }
             }
             return nil
         }
 
         // MARK: - Loaders
 
-        /// Read every plist in /Library/LaunchDaemons (system-wide) and
-        /// /Library/LaunchAgents (user-wide). Per-user agents are skipped —
-        /// security tooling lives in /Library, not ~/Library.
         static func loadLaunchDaemons() -> [Service] {
             let dirs = ["/Library/LaunchDaemons"]
             var services: [Service] = []
@@ -105,19 +107,24 @@ public enum SystemServiceRegistry {
                     else { continue }
 
                     let label = (plist["Label"] as? String) ?? entry.replacingOccurrences(of: ".plist", with: "")
-                    var tokens: [String] = [label]
+                    var paths: [String] = []
                     if let program = plist["Program"] as? String {
-                        tokens.append((program as NSString).lastPathComponent)
+                        paths.append(program)
                     }
                     if let args = plist["ProgramArguments"] as? [String], let first = args.first {
-                        tokens.append((first as NSString).lastPathComponent)
+                        paths.append(first)
                     }
-                    if let bin = plist["BundleIdentifier"] as? String {
-                        tokens.append(bin)
-                    }
+                    let bundleIDPrefixes: [String] = {
+                        var out: [String] = [label]
+                        if let bin = plist["BundleIdentifier"] as? String {
+                            out.append(bin)
+                        }
+                        return out
+                    }()
                     services.append(Service(
                         label: label,
-                        matchTokens: tokens.filter { !$0.isEmpty },
+                        executablePaths: paths,
+                        bundleIDPrefixes: bundleIDPrefixes,
                         kind: .launchDaemon
                     ))
                 }
@@ -125,16 +132,13 @@ public enum SystemServiceRegistry {
             return services
         }
 
-        /// Walk /Library/SystemExtensions and extract every installed
-        /// extension, flagging EndpointSecurity ones explicitly.
         static func loadSystemExtensions() -> [Service] {
-            // /Library/SystemExtensions/<UUID>/<bundle.id>.systemextension/Contents/Info.plist
             let root = "/Library/SystemExtensions"
             guard FileManager.default.fileExists(atPath: root),
                   let containers = try? FileManager.default.contentsOfDirectory(atPath: root)
             else { return [] }
             var services: [Service] = []
-            for container in containers {
+            for container in containers where container != ".staging" {
                 let containerPath = "\(root)/\(container)"
                 guard let bundles = try? FileManager.default.contentsOfDirectory(atPath: containerPath) else { continue }
                 for bundle in bundles where bundle.hasSuffix(".systemextension") {
@@ -149,11 +153,15 @@ public enum SystemServiceRegistry {
                     let bundleID = (plist["CFBundleIdentifier"] as? String)
                         ?? bundle.replacingOccurrences(of: ".systemextension", with: "")
                     let executableName = (plist["CFBundleExecutable"] as? String) ?? bundleID
+                    let executablePath = "\(bundlePath)/Contents/MacOS/\(executableName)"
 
-                    let kind: SystemServiceKind = isEndpointSecurityExtension(plist) ? .endpointSecurityExtension : .systemExtension
+                    let kind: SystemServiceKind = isEndpointSecurityExtension(plist)
+                        ? .endpointSecurityExtension
+                        : .systemExtension
                     services.append(Service(
                         label: bundleID,
-                        matchTokens: [bundleID, executableName],
+                        executablePaths: [executablePath],
+                        bundleIDPrefixes: [bundleID],
                         kind: kind
                     ))
                 }
@@ -162,9 +170,6 @@ public enum SystemServiceRegistry {
         }
 
         private static func isEndpointSecurityExtension(_ plist: [String: Any]) -> Bool {
-            // Endpoint Security extensions declare:
-            //   NSExtension.NSExtensionPointIdentifier == "com.apple.security.endpoint-security.client"
-            // OR they list the EndpointSecurity entitlement.
             if let nsExt = plist["NSExtension"] as? [String: Any],
                let pointID = nsExt["NSExtensionPointIdentifier"] as? String,
                pointID.contains("endpoint-security") {

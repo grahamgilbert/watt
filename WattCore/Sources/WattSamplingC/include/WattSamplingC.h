@@ -20,6 +20,10 @@
  */
 int watt_proc_listallpids(int32_t *buffer, int buffersize_bytes);
 int watt_proc_name(int pid, char *buffer, uint32_t buffersize);
+/// Absolute executable path for `pid`. Works without privilege for any
+/// process visible to libproc (including root-owned daemons we can't
+/// rusage). Returns the number of bytes written, 0 if not available.
+int watt_proc_pidpath(int pid, char *buffer, uint32_t buffersize);
 int watt_proc_pid_rusage_v6(int pid, struct rusage_info_v6 *out);
 
 /*

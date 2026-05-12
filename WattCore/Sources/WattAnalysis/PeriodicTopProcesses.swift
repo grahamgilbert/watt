@@ -112,6 +112,7 @@ public enum PeriodicTopProcesses {
         var pid: Int32
         var name: String
         var bundleID: String?
+        var executablePath: String?
         var cpuSeconds: Double = 0
         var energyJoules: Double = 0
         var diskReadBytes: UInt64 = 0
@@ -127,9 +128,11 @@ public enum PeriodicTopProcesses {
                 var entry = byPid[proc.pid] ?? Aggregate(
                     pid: proc.pid,
                     name: proc.name,
-                    bundleID: proc.bundleID
+                    bundleID: proc.bundleID,
+                    executablePath: proc.executablePath
                 )
                 if entry.bundleID == nil { entry.bundleID = proc.bundleID }
+                if entry.executablePath == nil { entry.executablePath = proc.executablePath }
                 entry.cpuSeconds += proc.cpuTimeDelta
                 entry.energyJoules += Double(proc.energyNanojoulesDelta) / 1_000_000_000.0
                 entry.diskReadBytes &+= proc.diskReadBytesDelta
@@ -143,7 +146,11 @@ public enum PeriodicTopProcesses {
     }
 
     private static func makeEntry(_ a: Aggregate) -> ProcessBucket.Entry {
-        let classification = SecurityAgents.classify(name: a.name, bundleID: a.bundleID)
+        let classification = SecurityAgents.classify(
+            name: a.name,
+            bundleID: a.bundleID,
+            executablePath: a.executablePath
+        )
         // Score uses CPU as primary because security agents often spike CPU
         // hard but consume relatively little energy attributable to them
         // specifically. CPU + energy + IO combine to surface different

@@ -6,6 +6,7 @@ public final class ProcessSample {
     public var pid: Int32
     public var name: String
     public var bundleID: String?
+    public var executablePath: String?
     public var cpuTimeDelta: Double
     public var energyNanojoulesDelta: UInt64
     public var billedEnergyDelta: UInt64
@@ -20,6 +21,7 @@ public final class ProcessSample {
         pid: Int32,
         name: String,
         bundleID: String? = nil,
+        executablePath: String? = nil,
         cpuTimeDelta: Double,
         energyNanojoulesDelta: UInt64,
         billedEnergyDelta: UInt64,
@@ -33,6 +35,7 @@ public final class ProcessSample {
         self.pid = pid
         self.name = name
         self.bundleID = bundleID
+        self.executablePath = executablePath
         self.cpuTimeDelta = cpuTimeDelta
         self.energyNanojoulesDelta = energyNanojoulesDelta
         self.billedEnergyDelta = billedEnergyDelta

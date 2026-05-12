@@ -12,6 +12,10 @@ int watt_proc_name(int pid, char *buffer, uint32_t buffersize) {
     return proc_name(pid, buffer, buffersize);
 }
 
+int watt_proc_pidpath(int pid, char *buffer, uint32_t buffersize) {
+    return proc_pidpath(pid, buffer, buffersize);
+}
+
 int watt_proc_pid_rusage_v6(int pid, struct rusage_info_v6 *out) {
     /*
      * Despite the misleading `rusage_info_t *` (which is `void **`) signature,

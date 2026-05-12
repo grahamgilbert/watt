@@ -144,13 +144,19 @@ public enum SecurityAgents {
         )
     ]
 
-    /// Returns the definition matching this process, if any. Match priority:
-    /// bundle ID prefix > name fragment.
+    /// Returns a curated registry hit for this process, if any. Match
+    /// priority: bundle-ID prefix (exact or `prefix.x`) > name fragment.
+    /// Name fragments only match a process whose name CONTAINS the fragment;
+    /// they're broad on purpose to catch helper processes (Falcon spawns
+    /// `falcond`, `falconctl`, etc).
     public static func match(name: String, bundleID: String?) -> Definition? {
-        if let bundleID = bundleID?.lowercased() {
+        if let lowerBundle = bundleID?.lowercased() {
             for def in registry {
-                for prefix in def.bundleIDPrefixes where bundleID.hasPrefix(prefix.lowercased()) {
-                    return def
+                for prefix in def.bundleIDPrefixes {
+                    let p = prefix.lowercased()
+                    if lowerBundle == p || lowerBundle.hasPrefix(p) {
+                        return def
+                    }
                 }
             }
         }
@@ -167,16 +173,30 @@ public enum SecurityAgents {
         match(name: name, bundleID: bundleID) != nil
     }
 
-    /// Combined classification: either an entry in the curated registry or
-    /// a system-managed daemon/extension on the host. We rely on this
-    /// rather than the curated list alone so reports flag in-house and
-    /// less-common agents that wouldn't be in any hardcoded list.
-    public static func classify(name: String, bundleID: String? = nil) -> Classification {
+    /// Combined classification using all three signals (in priority order):
+    ///   1. The process is a known macOS system extension or LaunchDaemon
+    ///      whose declared executable path or bundle ID exactly matches.
+    ///      This is the strongest signal — it means the OS itself is
+    ///      vouching for this binary as system-managed.
+    ///   2. The process bundle-ID or name matches the curated security-tool
+    ///      registry. Useful to give friendly display names and rationale.
+    ///   3. Otherwise, unknown.
+    public static func classify(
+        name: String,
+        bundleID: String? = nil,
+        executablePath: String? = nil
+    ) -> Classification {
+        if let svc = SystemServiceRegistry.match(executablePath: executablePath, bundleID: bundleID) {
+            // If the system service is also in the curated registry, prefer
+            // the curated entry's display name but record that it's also
+            // system-managed.
+            if let curated = match(name: name, bundleID: bundleID) {
+                return .curated(curated)
+            }
+            return .systemManaged(svc)
+        }
         if let curated = match(name: name, bundleID: bundleID) {
             return .curated(curated)
-        }
-        if let svc = SystemServiceRegistry.match(name: name, bundleID: bundleID) {
-            return .systemManaged(svc)
         }
         return .unknown
     }
