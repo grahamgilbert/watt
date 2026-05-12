@@ -66,6 +66,7 @@ public struct MenuBarView: View {
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
             row(label: "Battery", value: batteryString(s))
             row(label: "Drain rate", value: drainString(s))
+            row(label: "Energy", value: energyString(s))
             row(label: "CPU", value: percentString(s.systemCPUUsage))
             row(label: "Memory pressure", value: "\(Int(s.memoryPressurePct.rounded()))%")
             if s.maxFanRPM > 0 {
@@ -94,8 +95,18 @@ public struct MenuBarView: View {
     }
 
     private func drainString(_ s: SamplingCoordinator.Snapshot) -> String {
-        guard s.drainRatePctPerHour > 0.5 else { return "—" }
+        guard s.drainRatePctPerHour > 0.5 else {
+            return s.isCharging ? "(on AC)" : "—"
+        }
         return "−\(Int(s.drainRatePctPerHour.rounded())) %/h"
+    }
+
+    private func energyString(_ s: SamplingCoordinator.Snapshot) -> String {
+        guard s.systemEnergyWatts > 0 else { return "—" }
+        if s.systemEnergyWatts < 10 {
+            return String(format: "%.1f W", s.systemEnergyWatts)
+        }
+        return "\(Int(s.systemEnergyWatts.rounded())) W"
     }
 
     private func percentString(_ unit: Double) -> String {

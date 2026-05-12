@@ -13,6 +13,11 @@ public final class SamplingCoordinator {
         public var batteryPercent: Double
         public var isCharging: Bool
         public var drainRatePctPerHour: Double
+        /// Aggregate kernel-billed energy for all running processes during
+        /// the most recent tick, in joules per second. Works identically on
+        /// battery and AC — it counts what the system *did*, not what the
+        /// battery lost. ~12 W is typical idle, > 30 W is heavy load.
+        public var systemEnergyWatts: Double
         public var systemCPUUsage: Double
         public var memoryPressurePct: Double
         public var maxFanRPM: Double
@@ -26,6 +31,7 @@ public final class SamplingCoordinator {
             batteryPercent: .nan,
             isCharging: false,
             drainRatePctPerHour: 0,
+            systemEnergyWatts: 0,
             systemCPUUsage: 0,
             memoryPressurePct: 0,
             maxFanRPM: 0,
@@ -50,6 +56,7 @@ public final class SamplingCoordinator {
     private let writer: SamplingWriter
     private var detector = EpisodeDetector()
     private var openEpisodeID: PersistentIdentifier?
+    private var lastTickTimestamp: Date?
 
     private var tickTask: Task<Void, Never>?
 
@@ -163,10 +170,12 @@ public final class SamplingCoordinator {
 
     private func makeSnapshot(point: SamplePoint) -> Snapshot {
         let drainRate = detector.currentDrainRatePctPerHour()
+        let watts = systemEnergyWatts(for: point)
         return Snapshot(
             batteryPercent: point.batteryPercent,
             isCharging: point.isCharging,
             drainRatePctPerHour: max(drainRate, 0),
+            systemEnergyWatts: watts,
             systemCPUUsage: point.systemCPUUsage,
             memoryPressurePct: point.memoryPressurePct,
             maxFanRPM: point.maxFanRPM,
@@ -176,6 +185,26 @@ public final class SamplingCoordinator {
             lastTick: point.timestamp,
             inEpisode: detector.inEpisode
         )
+    }
+
+    /// Sums per-process kernel-billed energy across the current tick and
+    /// divides by the seconds since the previous tick to get watts.
+    /// `ri_energy_nj` is the field the kernel uses to charge processes for
+    /// power accounting and is correct on AC and battery alike.
+    private func systemEnergyWatts(for point: SamplePoint) -> Double {
+        let totalNanojoules = point.processes.reduce(into: UInt64(0)) { acc, proc in
+            acc &+= proc.energyNanojoulesDelta
+        }
+        let elapsed: TimeInterval = {
+            guard let prior = lastTickTimestamp else {
+                let comps = samplingInterval.components
+                return TimeInterval(comps.seconds) + TimeInterval(comps.attoseconds) / 1e18
+            }
+            return max(point.timestamp.timeIntervalSince(prior), 0.5)
+        }()
+        lastTickTimestamp = point.timestamp
+        // 1 W = 1 J/s = 1e9 nJ/s.
+        return Double(totalNanojoules) / 1_000_000_000.0 / elapsed
     }
 
     public func setSamplingInterval(_ duration: Duration) {
