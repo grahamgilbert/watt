@@ -13,17 +13,20 @@ public struct ReportWindow: View {
     @State private var selectedEpisodeID: PersistentIdentifier?
 
     let coordinator: SamplingCoordinator
+    let progress: ReportProgress
     let onRecordNote: (String) -> Void
     let onRegenerate: (PersistentIdentifier) -> Void
     let onAdHocReport: (TimeInterval) -> Void
 
     public init(
         coordinator: SamplingCoordinator,
+        progress: ReportProgress,
         onRecordNote: @escaping (String) -> Void,
         onRegenerate: @escaping (PersistentIdentifier) -> Void,
         onAdHocReport: @escaping (TimeInterval) -> Void = { _ in }
     ) {
         self.coordinator = coordinator
+        self.progress = progress
         self.onRecordNote = onRecordNote
         self.onRegenerate = onRegenerate
         self.onAdHocReport = onAdHocReport
@@ -38,6 +41,7 @@ public struct ReportWindow: View {
                 LiveStatsHeader(coordinator: coordinator)
                     .padding(.horizontal, 12)
                     .padding(.top, 12)
+                ReportProgressBanner(progress: progress)
                 if let id = selectedEpisodeID,
                    let episode = episodes.first(where: { $0.persistentModelID == id }) {
                     ReportDetailView(
@@ -68,6 +72,63 @@ public struct ReportWindow: View {
         .onDisappear {
             coordinator.deactivateFastUpdates()
         }
+        .onChange(of: progress.pendingSelection) { _, newValue in
+            if let id = newValue {
+                selectedEpisodeID = id
+                progress.pendingSelection = nil
+            }
+        }
+    }
+}
+
+/// Inline banner that surfaces "generating…" / "ready" / "failed" feedback.
+/// Bound directly to `ReportProgress`; auto-hides when phase is `.idle`.
+public struct ReportProgressBanner: View {
+    let progress: ReportProgress
+
+    public init(progress: ReportProgress) { self.progress = progress }
+
+    public var body: some View {
+        Group {
+            switch progress.phase {
+            case .idle:
+                EmptyView()
+            case .generating(let label):
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(label)
+                        .font(.caption)
+                    Spacer()
+                }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 12)
+                .background(Color.accentColor.opacity(0.12))
+            case .finished(let label, _):
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text(label).font(.caption)
+                    Spacer()
+                }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 12)
+                .background(Color.green.opacity(0.12))
+            case .failed(let label, let message):
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(label).font(.caption).bold()
+                        Text(message).font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 12)
+                .background(Color.orange.opacity(0.12))
+            }
+        }
+        .animation(.default, value: progress.phase)
     }
 }
 
@@ -245,28 +306,38 @@ public struct ReportDetailView: View {
             } label: {
                 Label("Regenerate", systemImage: "arrow.clockwise")
             }
+            .help("Re-run the analysis and AI verdict for this episode. The previous report is kept in history.")
+
             Button {
                 showNoteSheet = true
             } label: {
                 Label("Add note", systemImage: "note.text.badge.plus")
             }
+            .help("Annotate this point in time (e.g. ‘started a Zoom call’). The note appears in the timeline of any episode that includes this moment.")
+
             Button {
                 copyToPasteboard()
             } label: {
                 Label("Copy for Slack", systemImage: "doc.on.clipboard")
             }
             .disabled(latestReport == nil)
+            .help("Copy the full Markdown report to the clipboard. Slack renders it natively.")
+
             Button {
                 exportMarkdown()
             } label: {
                 Label("Export .md", systemImage: "square.and.arrow.up")
             }
             .disabled(latestReport == nil)
+            .help("Save the report to a .md file at a custom location.")
+
             Button {
                 revealReportsDirectory()
             } label: {
                 Label("Reports folder", systemImage: "folder")
             }
+            .help("Reveal the on-disk Markdown mirror at ~/Library/Application Support/Watt/Reports/ in Finder.")
+
             Menu {
                 Button("Last 15 minutes")  { onAdHocReport(15 * 60) }
                 Button("Last 30 minutes")  { onAdHocReport(30 * 60) }
@@ -275,6 +346,7 @@ public struct ReportDetailView: View {
             } label: {
                 Label("Investigate…", systemImage: "magnifyingglass")
             }
+            .help("Generate a one-off report covering recent activity, even if Watt didn’t auto-flag a drain episode.")
         }
     }
 

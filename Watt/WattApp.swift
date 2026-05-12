@@ -12,6 +12,7 @@ struct WattApp: App {
     private let container: ModelContainer
     @State private var coordinator: SamplingCoordinator
     @State private var loginItem: LoginItemController
+    @State private var progress: ReportProgress
     private let reportCoordinator: ReportCoordinator
 
     init() {
@@ -26,7 +27,36 @@ struct WattApp: App {
         let coordinator = SamplingCoordinator(writer: writer)
         self._coordinator = State(initialValue: coordinator)
         self._loginItem = State(initialValue: LoginItemController())
+        self._progress = State(initialValue: ReportProgress())
         self.reportCoordinator = ReportCoordinator(writer: writer)
+    }
+
+    private func runAdHoc(lookback: TimeInterval) {
+        let label = "Generating report for the last \(Int(lookback / 60)) min…"
+        progress.startGenerating(label: label)
+        let coordinator = reportCoordinator
+        let progress = progress
+        Task { @MainActor in
+            let id = await coordinator.generateAdHocReport(lookback: lookback)
+            if let id {
+                progress.finish(label: "Report ready", episodeID: id)
+            } else {
+                progress.fail(
+                    label: "Could not generate report",
+                    message: "No samples were recorded in that window."
+                )
+            }
+        }
+    }
+
+    private func runRegenerate(id: PersistentIdentifier) {
+        progress.startGenerating(label: "Regenerating report…")
+        let coordinator = reportCoordinator
+        let progress = progress
+        Task { @MainActor in
+            await coordinator.regenerate(for: id)
+            progress.finish(label: "Report regenerated", episodeID: id)
+        }
     }
 
     var body: some Scene {
@@ -41,7 +71,7 @@ struct WattApp: App {
                 onAdHocReport: { lookback in
                     NSApplication.shared.activate(ignoringOtherApps: true)
                     openWindow(id: "report")
-                    Task { await reportCoordinator.generateAdHocReport(lookback: lookback) }
+                    runAdHoc(lookback: lookback)
                 }
             )
             .task {
@@ -56,14 +86,15 @@ struct WattApp: App {
         Window("Watt — Reports", id: "report") {
             ReportWindow(
                 coordinator: coordinator,
+                progress: progress,
                 onRecordNote: { note in
                     coordinator.recordUserNote(note)
                 },
                 onRegenerate: { id in
-                    Task { await reportCoordinator.regenerate(for: id) }
+                    runRegenerate(id: id)
                 },
                 onAdHocReport: { lookback in
-                    Task { await reportCoordinator.generateAdHocReport(lookback: lookback) }
+                    runAdHoc(lookback: lookback)
                 }
             )
             .modelContainer(container)
