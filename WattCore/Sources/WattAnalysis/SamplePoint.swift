@@ -8,6 +8,10 @@ public struct SamplePoint: Sendable, Hashable {
     public var batteryPercent: Double
     public var isCharging: Bool
     public var instantaneousWatts: Double
+    /// Aggregate `ri_energy_nj` divided by elapsed wall-clock seconds. This is
+    /// what the kernel charged across all running processes during the tick.
+    /// Works on AC and battery; never NaN.
+    public var systemEnergyWatts: Double
     public var systemCPUUsage: Double
     public var memoryPressurePct: Double
     public var memoryUsedBytes: UInt64
@@ -22,6 +26,7 @@ public struct SamplePoint: Sendable, Hashable {
         batteryPercent: Double,
         isCharging: Bool,
         instantaneousWatts: Double,
+        systemEnergyWatts: Double = 0,
         systemCPUUsage: Double,
         memoryPressurePct: Double,
         memoryUsedBytes: UInt64,
@@ -35,6 +40,7 @@ public struct SamplePoint: Sendable, Hashable {
         self.batteryPercent = batteryPercent
         self.isCharging = isCharging
         self.instantaneousWatts = instantaneousWatts
+        self.systemEnergyWatts = systemEnergyWatts
         self.systemCPUUsage = systemCPUUsage
         self.memoryPressurePct = memoryPressurePct
         self.memoryUsedBytes = memoryUsedBytes
@@ -51,6 +57,7 @@ public struct SamplePoint: Sendable, Hashable {
             batteryPercent: sample.batteryPercent,
             isCharging: sample.isCharging,
             instantaneousWatts: sample.instantaneousWatts,
+            systemEnergyWatts: sample.systemEnergyWatts,
             systemCPUUsage: sample.systemCPUUsage,
             memoryPressurePct: sample.memoryPressurePct,
             memoryUsedBytes: sample.memoryUsedBytes,

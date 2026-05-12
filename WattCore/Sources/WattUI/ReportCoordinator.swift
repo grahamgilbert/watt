@@ -49,7 +49,9 @@ public actor ReportCoordinator {
             startPercent: bounds.startPercent,
             endPercent: bounds.endPercent,
             peakDrainRatePctPerHour: bounds.peakDrainRatePctPerHour,
-            avgThermalState: bounds.avgThermalState
+            avgThermalState: bounds.avgThermalState,
+            trigger: bounds.trigger,
+            peakSystemEnergyWatts: bounds.peakSystemEnergyWatts
         )
         let output = await generator.generate(
             episode: episodeStub,

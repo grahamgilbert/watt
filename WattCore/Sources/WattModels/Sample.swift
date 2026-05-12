@@ -8,6 +8,7 @@ public final class Sample {
     public var batteryPercent: Double
     public var isCharging: Bool
     public var instantaneousWatts: Double
+    public var systemEnergyWatts: Double = 0
     public var systemCPUUsage: Double
     public var memoryPressurePct: Double
     public var memoryUsedBytes: UInt64
@@ -24,6 +25,7 @@ public final class Sample {
         batteryPercent: Double,
         isCharging: Bool,
         instantaneousWatts: Double,
+        systemEnergyWatts: Double = 0,
         systemCPUUsage: Double,
         memoryPressurePct: Double,
         memoryUsedBytes: UInt64,
@@ -37,6 +39,7 @@ public final class Sample {
         self.batteryPercent = batteryPercent
         self.isCharging = isCharging
         self.instantaneousWatts = instantaneousWatts
+        self.systemEnergyWatts = systemEnergyWatts
         self.systemCPUUsage = systemCPUUsage
         self.memoryPressurePct = memoryPressurePct
         self.memoryUsedBytes = memoryUsedBytes

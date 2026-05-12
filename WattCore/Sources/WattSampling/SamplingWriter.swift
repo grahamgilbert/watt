@@ -14,6 +14,7 @@ public actor SamplingWriter {
             batteryPercent: point.batteryPercent,
             isCharging: point.isCharging,
             instantaneousWatts: point.instantaneousWatts,
+            systemEnergyWatts: point.systemEnergyWatts,
             systemCPUUsage: point.systemCPUUsage,
             memoryPressurePct: point.memoryPressurePct,
             memoryUsedBytes: point.memoryUsedBytes,
@@ -55,13 +56,18 @@ public actor SamplingWriter {
         try modelContext.save()
     }
 
-    public func writeEpisode(start: Date, startPercent: Double) throws -> PersistentIdentifier {
+    public func writeEpisode(
+        start: Date,
+        startPercent: Double,
+        trigger: DrainEpisodeTrigger = .batteryDrain
+    ) throws -> PersistentIdentifier {
         let episode = DrainEpisode(
             startedAt: start,
             startPercent: startPercent,
             endPercent: startPercent,
             peakDrainRatePctPerHour: 0,
-            avgThermalState: 0
+            avgThermalState: 0,
+            trigger: trigger
         )
         modelContext.insert(episode)
         try modelContext.save()
@@ -73,12 +79,14 @@ public actor SamplingWriter {
         endedAt: Date,
         endPercent: Double,
         peakDrainRate: Double,
+        peakSystemEnergyWatts: Double = 0,
         avgThermalState: Int
     ) throws {
         guard let episode = modelContext.model(for: id) as? DrainEpisode else { return }
         episode.endedAt = endedAt
         episode.endPercent = endPercent
         episode.peakDrainRatePctPerHour = peakDrainRate
+        episode.peakSystemEnergyWatts = peakSystemEnergyWatts
         episode.avgThermalState = avgThermalState
         try modelContext.save()
     }
@@ -103,7 +111,9 @@ public actor SamplingWriter {
         public var startPercent: Double
         public var endPercent: Double
         public var peakDrainRatePctPerHour: Double
+        public var peakSystemEnergyWatts: Double
         public var avgThermalState: Int
+        public var trigger: DrainEpisodeTrigger
     }
 
     public func episodeBounds(id: PersistentIdentifier) throws -> EpisodeBounds? {
@@ -114,7 +124,9 @@ public actor SamplingWriter {
             startPercent: episode.startPercent,
             endPercent: episode.endPercent,
             peakDrainRatePctPerHour: episode.peakDrainRatePctPerHour,
-            avgThermalState: episode.avgThermalState
+            peakSystemEnergyWatts: episode.peakSystemEnergyWatts,
+            avgThermalState: episode.avgThermalState,
+            trigger: episode.trigger
         )
     }
 

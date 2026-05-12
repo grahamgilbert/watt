@@ -123,11 +123,15 @@ public final class SamplingCoordinator {
         let proc = await procR
         let fsRate = fsEvents.consumeRate()
 
+        let now = Date()
+        let watts = computeSystemEnergyWatts(at: now, processes: proc.processes)
+
         let point = SamplePoint(
-            timestamp: Date(),
+            timestamp: now,
             batteryPercent: battery.batteryPercent,
             isCharging: battery.isCharging,
             instantaneousWatts: battery.instantaneousWatts,
+            systemEnergyWatts: watts,
             systemCPUUsage: host.systemCPUUsage,
             memoryPressurePct: host.memoryPressurePct,
             memoryUsedBytes: host.memoryUsedBytes,
@@ -145,20 +149,25 @@ public final class SamplingCoordinator {
     private func reactToEpisodes(point: SamplePoint) async {
         let event = detector.feed(point)
         switch event {
-        case .started(let at, let pct):
+        case .started(let at, let pct, let trigger):
             do {
-                let id = try await writer.writeEpisode(start: at, startPercent: pct)
+                let id = try await writer.writeEpisode(
+                    start: at,
+                    startPercent: pct,
+                    trigger: trigger
+                )
                 openEpisodeID = id
             } catch {
                 openEpisodeID = nil
             }
-        case .ended(let at, let pct, let peakDrain, let avgThermal):
+        case .ended(let at, let pct, let peakDrain, let peakWatts, let avgThermal, _):
             if let id = openEpisodeID {
                 try? await writer.updateEpisode(
                     id: id,
                     endedAt: at,
                     endPercent: pct,
                     peakDrainRate: peakDrain,
+                    peakSystemEnergyWatts: peakWatts,
                     avgThermalState: avgThermal
                 )
             }
@@ -170,12 +179,11 @@ public final class SamplingCoordinator {
 
     private func makeSnapshot(point: SamplePoint) -> Snapshot {
         let drainRate = detector.currentDrainRatePctPerHour()
-        let watts = systemEnergyWatts(for: point)
         return Snapshot(
             batteryPercent: point.batteryPercent,
             isCharging: point.isCharging,
             drainRatePctPerHour: max(drainRate, 0),
-            systemEnergyWatts: watts,
+            systemEnergyWatts: point.systemEnergyWatts,
             systemCPUUsage: point.systemCPUUsage,
             memoryPressurePct: point.memoryPressurePct,
             maxFanRPM: point.maxFanRPM,
@@ -191,8 +199,8 @@ public final class SamplingCoordinator {
     /// divides by the seconds since the previous tick to get watts.
     /// `ri_energy_nj` is the field the kernel uses to charge processes for
     /// power accounting and is correct on AC and battery alike.
-    private func systemEnergyWatts(for point: SamplePoint) -> Double {
-        let totalNanojoules = point.processes.reduce(into: UInt64(0)) { acc, proc in
+    private func computeSystemEnergyWatts(at timestamp: Date, processes: [ProcessPoint]) -> Double {
+        let totalNanojoules = processes.reduce(into: UInt64(0)) { acc, proc in
             acc &+= proc.energyNanojoulesDelta
         }
         let elapsed: TimeInterval = {
@@ -200,9 +208,9 @@ public final class SamplingCoordinator {
                 let comps = samplingInterval.components
                 return TimeInterval(comps.seconds) + TimeInterval(comps.attoseconds) / 1e18
             }
-            return max(point.timestamp.timeIntervalSince(prior), 0.5)
+            return max(timestamp.timeIntervalSince(prior), 0.5)
         }()
-        lastTickTimestamp = point.timestamp
+        lastTickTimestamp = timestamp
         // 1 W = 1 J/s = 1e9 nJ/s.
         return Double(totalNanojoules) / 1_000_000_000.0 / elapsed
     }

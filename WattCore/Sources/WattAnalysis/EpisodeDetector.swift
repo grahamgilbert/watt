@@ -1,46 +1,69 @@
 import Foundation
+import WattModels
 
-/// Streaming detector for sustained battery-drain episodes.
+/// Streaming detector for sustained drain / high-energy episodes.
 ///
-/// `EpisodeDetector` is a value type — `feed(_:)` is mutating and returns any
-/// state transitions caused by the new sample. It keeps a fixed-size rolling
-/// window in memory; every method is pure and synchronous so the higher-level
-/// `SamplingCoordinator` actor can drive it without crossing isolation domains.
+/// `EpisodeDetector` does NOT trigger on momentary spikes. It maintains a
+/// rolling window of samples and integrates real wall-clock energy across that
+/// window. An episode starts only when the *aggregated* signal — total
+/// percent dropped over the window for battery, or mean joules-per-second
+/// over the window for AC — sits above its threshold for several samples in
+/// a row, AND the window holds at least `minimumWindowSeconds` of data.
+///
+/// This is what catches the canonical "security agent spikes the CPU 60 W
+/// for 1 s every 5 s while idling at 8 W between": each sample is below the
+/// crude threshold, but the windowed integral lands well above.
 public struct EpisodeDetector: Sendable {
     public struct Configuration: Sendable {
-        /// Minimum sustained drain rate (percent per hour) to start an
-        /// episode. Default is 12 %/h.
-        public var startThresholdPctPerHour: Double
-        /// Episode ends when drain drops below `startThresholdPctPerHour /
-        /// endThresholdDivisor`. Default 2.0.
+        /// Battery: minimum aggregated drop (percent of full battery) over
+        /// the window required to trigger. 5 % over 10 minutes ≈ 30 %/h —
+        /// far above idle on a typical M-series laptop, well below a runaway.
+        public var batteryDrainThresholdPctOverWindow: Double
+        /// AC: minimum mean wattage across the window required to trigger.
+        /// Typical idle on M-series is ~8–12 W; 20 W sustained for 10 min
+        /// is a real workload that you'd expect to see in a report.
+        public var acHighEnergyThresholdMeanWatts: Double
+        /// End thresholds are computed as start / divisor.
         public var endThresholdDivisor: Double
-        /// Number of consecutive samples that must clear the start/end
-        /// threshold. Default 3.
+        /// Number of consecutive *new* samples (after window saturation) that
+        /// must agree on the start condition before an episode begins. Keeps
+        /// us from triggering on a single tail-end blip.
         public var stickyCount: Int
-        /// Window size (samples). Default 20 (≈10 min at 30 s cadence).
-        public var windowSize: Int
+        /// Window length in seconds. The detector requires at least this much
+        /// real time of data before it will consider the start condition.
+        public var windowSeconds: TimeInterval
         /// Maximum gap between samples that still counts as continuous; gaps
-        /// larger than this end an open episode (sleep/wake).
+        /// larger than this end an open episode (sleep/wake) and reset the
+        /// window so the saturation requirement starts over.
         public var maxSampleGap: TimeInterval
 
         public init(
-            startThresholdPctPerHour: Double = 12,
+            batteryDrainThresholdPctOverWindow: Double = 5,
+            acHighEnergyThresholdMeanWatts: Double = 20,
             endThresholdDivisor: Double = 2,
             stickyCount: Int = 3,
-            windowSize: Int = 20,
+            windowSeconds: TimeInterval = 600,
             maxSampleGap: TimeInterval = 60
         ) {
-            self.startThresholdPctPerHour = startThresholdPctPerHour
+            self.batteryDrainThresholdPctOverWindow = batteryDrainThresholdPctOverWindow
+            self.acHighEnergyThresholdMeanWatts = acHighEnergyThresholdMeanWatts
             self.endThresholdDivisor = endThresholdDivisor
             self.stickyCount = stickyCount
-            self.windowSize = windowSize
+            self.windowSeconds = windowSeconds
             self.maxSampleGap = maxSampleGap
         }
     }
 
     public enum Event: Sendable, Equatable {
-        case started(at: Date, percent: Double)
-        case ended(at: Date, percent: Double, peakDrainRatePctPerHour: Double, avgThermalState: Int)
+        case started(at: Date, percent: Double, trigger: DrainEpisodeTrigger)
+        case ended(
+            at: Date,
+            percent: Double,
+            peakDrainRatePctPerHour: Double,
+            peakSystemEnergyWatts: Double,
+            avgThermalState: Int,
+            trigger: DrainEpisodeTrigger
+        )
         case noChange
     }
 
@@ -48,127 +71,234 @@ public struct EpisodeDetector: Sendable {
     public private(set) var inEpisode: Bool = false
     public private(set) var episodeStart: Date?
     public private(set) var episodeStartPercent: Double?
+    public private(set) var trigger: DrainEpisodeTrigger = .batteryDrain
     public private(set) var peakDrainRate: Double = 0
+    public private(set) var peakSystemEnergyWatts: Double = 0
     public private(set) var thermalAccumulator: Int = 0
     public private(set) var thermalSampleCount: Int = 0
 
     private var window: [SamplePoint] = []
-    private var aboveStartCount = 0
+    private var aboveBatteryCount = 0
+    private var aboveEnergyCount = 0
     private var belowEndCount = 0
 
     public init(configuration: Configuration = .init()) {
         self.configuration = configuration
-        self.window.reserveCapacity(configuration.windowSize + 1)
     }
 
     @discardableResult
     public mutating func feed(_ point: SamplePoint) -> Event {
         let priorLast = window.last
         if let prior = priorLast,
-           point.timestamp.timeIntervalSince(prior.timestamp) > configuration.maxSampleGap,
-           inEpisode {
-            return endEpisode(reason: .gap, atTimestamp: prior.timestamp, atPercent: prior.batteryPercent)
+           point.timestamp.timeIntervalSince(prior.timestamp) > configuration.maxSampleGap {
+            // A long gap (sleep/wake) invalidates the window. End any open
+            // episode and reset accumulators so the next start has to clear
+            // saturation again.
+            let gapEvent: Event
+            if inEpisode {
+                gapEvent = endEpisode(reason: .gap, at: prior.timestamp, percent: prior.batteryPercent)
+            } else {
+                gapEvent = .noChange
+            }
+            window.removeAll(keepingCapacity: true)
+            aboveBatteryCount = 0
+            aboveEnergyCount = 0
+            belowEndCount = 0
+            window.append(point)
+            return gapEvent
         }
 
         appendToWindow(point)
 
-        if point.isCharging, inEpisode {
-            return endEpisode(reason: .plugIn, atTimestamp: point.timestamp, atPercent: point.batteryPercent)
+        // Power-source transition can end an open episode early.
+        if inEpisode {
+            switch trigger {
+            case .batteryDrain where point.isCharging:
+                return endEpisode(reason: .plugIn, at: point.timestamp, percent: point.batteryPercent)
+            case .acHighEnergy where !point.isCharging:
+                return endEpisode(reason: .unplug, at: point.timestamp, percent: point.batteryPercent)
+            default:
+                break
+            }
         }
 
-        let drainRate = currentDrainRatePctPerHour()
         if inEpisode {
-            peakDrainRate = max(peakDrainRate, drainRate)
+            peakDrainRate = max(peakDrainRate, currentDrainRatePctPerHour())
+            peakSystemEnergyWatts = max(peakSystemEnergyWatts, point.systemEnergyWatts)
             thermalAccumulator += point.thermalState
             thermalSampleCount += 1
         }
 
-        let endThreshold = configuration.startThresholdPctPerHour / max(configuration.endThresholdDivisor, .leastNormalMagnitude)
+        // The detector needs a saturated window before it can talk about
+        // sustained behaviour. While the window is still warming up, just
+        // accumulate.
+        if !windowIsSaturated() {
+            return .noChange
+        }
 
         if !inEpisode {
-            if !point.isCharging, drainRate >= configuration.startThresholdPctPerHour {
-                aboveStartCount += 1
-                if aboveStartCount >= configuration.stickyCount {
-                    return startEpisode(at: point)
+            return checkStartConditions(point: point)
+        }
+        return checkEndCondition(point: point)
+    }
+
+    private mutating func checkStartConditions(point: SamplePoint) -> Event {
+        if !point.isCharging {
+            aboveEnergyCount = 0
+            let drop = windowDrainPctTotal()
+            if drop >= configuration.batteryDrainThresholdPctOverWindow {
+                aboveBatteryCount += 1
+                if aboveBatteryCount >= configuration.stickyCount {
+                    return startEpisode(at: point, trigger: .batteryDrain)
                 }
             } else {
-                aboveStartCount = 0
-            }
-            return .noChange
-        } else {
-            if drainRate < endThreshold {
-                belowEndCount += 1
-                if belowEndCount >= configuration.stickyCount {
-                    return endEpisode(reason: .calmed, atTimestamp: point.timestamp, atPercent: point.batteryPercent)
-                }
-            } else {
-                belowEndCount = 0
+                aboveBatteryCount = 0
             }
             return .noChange
         }
+
+        aboveBatteryCount = 0
+        let mean = windowMeanWatts()
+        if mean >= configuration.acHighEnergyThresholdMeanWatts {
+            aboveEnergyCount += 1
+            if aboveEnergyCount >= configuration.stickyCount {
+                return startEpisode(at: point, trigger: .acHighEnergy)
+            }
+        } else {
+            aboveEnergyCount = 0
+        }
+        return .noChange
+    }
+
+    private mutating func checkEndCondition(point: SamplePoint) -> Event {
+        let calmed: Bool
+        switch trigger {
+        case .batteryDrain:
+            let endThreshold = configuration.batteryDrainThresholdPctOverWindow
+                / max(configuration.endThresholdDivisor, .leastNormalMagnitude)
+            calmed = windowDrainPctTotal() < endThreshold
+        case .acHighEnergy:
+            let endThreshold = configuration.acHighEnergyThresholdMeanWatts
+                / max(configuration.endThresholdDivisor, .leastNormalMagnitude)
+            calmed = windowMeanWatts() < endThreshold
+        }
+        if calmed {
+            belowEndCount += 1
+            if belowEndCount >= configuration.stickyCount {
+                return endEpisode(reason: .calmed, at: point.timestamp, percent: point.batteryPercent)
+            }
+        } else {
+            belowEndCount = 0
+        }
+        return .noChange
     }
 
     private mutating func appendToWindow(_ point: SamplePoint) {
         window.append(point)
-        if window.count > configuration.windowSize {
-            window.removeFirst(window.count - configuration.windowSize)
+        // Drop samples older than (newest - windowSeconds). Always keep at
+        // least two so we can compute a slope.
+        let cutoff = point.timestamp.addingTimeInterval(-configuration.windowSeconds)
+        while window.count > 2, let first = window.first, first.timestamp < cutoff {
+            window.removeFirst()
         }
     }
 
-    /// Least-squares slope of `batteryPercent` over the current window,
-    /// converted to percent-per-hour. Negative values mean the battery is
-    /// falling; we return the magnitude so callers can compare against
-    /// thresholds without sign confusion.
-    public func currentDrainRatePctPerHour() -> Double {
-        guard window.count >= 2 else { return 0 }
-        let firstTime = window[0].timestamp.timeIntervalSinceReferenceDate
-        let xs = window.map { $0.timestamp.timeIntervalSinceReferenceDate - firstTime }
-        let ys = window.map(\.batteryPercent)
-        let n = Double(window.count)
-        let sumX = xs.reduce(0, +)
-        let sumY = ys.reduce(0, +)
-        let sumXY = zip(xs, ys).map(*).reduce(0, +)
-        let sumXX = xs.map { $0 * $0 }.reduce(0, +)
-        let denominator = n * sumXX - sumX * sumX
-        guard abs(denominator) > .leastNormalMagnitude else { return 0 }
-        let slopePctPerSecond = (n * sumXY - sumX * sumY) / denominator
-        // slope is negative on drain; report magnitude in %/hour.
-        return -slopePctPerSecond * 3600
+    /// True only once the oldest sample in the window is at least
+    /// `windowSeconds` old, so windowed metrics describe a full real-time
+    /// window rather than a partial one.
+    public func windowIsSaturated() -> Bool {
+        guard let first = window.first, let last = window.last else { return false }
+        return last.timestamp.timeIntervalSince(first.timestamp) >= configuration.windowSeconds
     }
 
-    private enum EndReason { case calmed, plugIn, gap }
+    /// Total battery drop in percent across the current window. Negative
+    /// values are clamped to zero (the battery never goes up while
+    /// discharging).
+    public func windowDrainPctTotal() -> Double {
+        guard let first = window.first, let last = window.last else { return 0 }
+        return max(first.batteryPercent - last.batteryPercent, 0)
+    }
 
-    private mutating func startEpisode(at point: SamplePoint) -> Event {
+    /// Time-weighted mean wattage across the window. Each sample's wattage
+    /// applies for the interval it represents (current sample's timestamp
+    /// minus prior sample's timestamp). This is robust against spiky
+    /// workloads where many samples sit at idle and a few sit at peak.
+    public func windowMeanWatts() -> Double {
+        guard window.count >= 2 else { return 0 }
+        var totalEnergyJoules = 0.0
+        var totalSeconds = 0.0
+        for i in 1..<window.count {
+            let prev = window[i - 1]
+            let cur = window[i]
+            let dt = cur.timestamp.timeIntervalSince(prev.timestamp)
+            guard dt > 0 else { continue }
+            // Trapezoidal integration so single-sample spikes are scaled by
+            // their actual elapsed window, not given full window weight.
+            let avgWatts = (prev.systemEnergyWatts + cur.systemEnergyWatts) / 2
+            totalEnergyJoules += avgWatts * dt
+            totalSeconds += dt
+        }
+        guard totalSeconds > 0 else { return 0 }
+        return totalEnergyJoules / totalSeconds
+    }
+
+    /// Convenience: the windowed-mean drop expressed as %/hour, used for
+    /// reporting and the AI prompt. Computed from `windowDrainPctTotal()` over
+    /// the window's wall-clock duration.
+    public func currentDrainRatePctPerHour() -> Double {
+        guard let first = window.first, let last = window.last else { return 0 }
+        let dt = last.timestamp.timeIntervalSince(first.timestamp)
+        guard dt > 0 else { return 0 }
+        return windowDrainPctTotal() / dt * 3600
+    }
+
+    private enum EndReason { case calmed, plugIn, unplug, gap }
+
+    private mutating func startEpisode(
+        at point: SamplePoint,
+        trigger: DrainEpisodeTrigger
+    ) -> Event {
         let startSample = window.first ?? point
         inEpisode = true
         episodeStart = startSample.timestamp
         episodeStartPercent = startSample.batteryPercent
+        self.trigger = trigger
         peakDrainRate = currentDrainRatePctPerHour()
+        peakSystemEnergyWatts = window.map(\.systemEnergyWatts).max() ?? point.systemEnergyWatts
         thermalAccumulator = point.thermalState
         thermalSampleCount = 1
         belowEndCount = 0
-        aboveStartCount = 0
-        return .started(at: startSample.timestamp, percent: startSample.batteryPercent)
+        aboveBatteryCount = 0
+        aboveEnergyCount = 0
+        return .started(at: startSample.timestamp, percent: startSample.batteryPercent, trigger: trigger)
     }
 
-    private mutating func endEpisode(reason: EndReason, atTimestamp: Date, atPercent: Double) -> Event {
+    private mutating func endEpisode(
+        reason: EndReason,
+        at timestamp: Date,
+        percent: Double
+    ) -> Event {
         let avgThermal = thermalSampleCount > 0
             ? Int((Double(thermalAccumulator) / Double(thermalSampleCount)).rounded())
             : 0
         let event = Event.ended(
-            at: atTimestamp,
-            percent: atPercent,
+            at: timestamp,
+            percent: percent,
             peakDrainRatePctPerHour: peakDrainRate,
-            avgThermalState: avgThermal
+            peakSystemEnergyWatts: peakSystemEnergyWatts,
+            avgThermalState: avgThermal,
+            trigger: trigger
         )
         inEpisode = false
         episodeStart = nil
         episodeStartPercent = nil
         peakDrainRate = 0
+        peakSystemEnergyWatts = 0
         thermalAccumulator = 0
         thermalSampleCount = 0
         belowEndCount = 0
-        aboveStartCount = 0
+        aboveBatteryCount = 0
+        aboveEnergyCount = 0
         _ = reason
         return event
     }

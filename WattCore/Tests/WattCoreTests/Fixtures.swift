@@ -20,6 +20,32 @@ enum Fixtures {
         }
     }
 
+    /// Sustained high system wattage while plugged in. Battery percent stays
+    /// flat at 80 %.
+    static func acHighEnergy(
+        watts: Double,
+        count: Int,
+        step: TimeInterval = 5,
+        start: Date = referenceDate,
+        thermalState: Int = 1,
+        cpu: Double = 0.6,
+        memory: Double = 55
+    ) -> [SamplePoint] {
+        samples(count: count, step: step, start: start) { _, t in
+            SamplePoint(
+                timestamp: t,
+                batteryPercent: 80,
+                isCharging: true,
+                instantaneousWatts: 0,
+                systemEnergyWatts: watts,
+                systemCPUUsage: cpu,
+                memoryPressurePct: memory,
+                memoryUsedBytes: 16_000_000_000,
+                thermalState: thermalState
+            )
+        }
+    }
+
     /// Steady drain: battery falls linearly at the requested %/h while
     /// unplugged. Useful baseline for the EpisodeDetector.
     static func steadyDrain(
