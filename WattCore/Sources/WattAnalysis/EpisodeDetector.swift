@@ -20,8 +20,11 @@ public struct EpisodeDetector: Sendable {
         /// far above idle on a typical M-series laptop, well below a runaway.
         public var batteryDrainThresholdPctOverWindow: Double
         /// AC: minimum mean wattage across the window required to trigger.
-        /// Typical idle on M-series is ~8–12 W; 20 W sustained for 10 min
-        /// is a real workload that you'd expect to see in a report.
+        /// Calibrated against `ri_energy_nj`-derived numbers, which only
+        /// account for kernel-billed per-process energy (not GPU/display/
+        /// idle floor). Empirically, idle on M-series sits around 1 W via
+        /// this signal, real workloads land around 5 W. 3 W as the
+        /// threshold cleanly separates the two without false positives.
         public var acHighEnergyThresholdMeanWatts: Double
         /// End thresholds are computed as start / divisor.
         public var endThresholdDivisor: Double
@@ -39,7 +42,7 @@ public struct EpisodeDetector: Sendable {
 
         public init(
             batteryDrainThresholdPctOverWindow: Double = 5,
-            acHighEnergyThresholdMeanWatts: Double = 20,
+            acHighEnergyThresholdMeanWatts: Double = 3,
             endThresholdDivisor: Double = 2,
             stickyCount: Int = 3,
             windowSeconds: TimeInterval = 600,
