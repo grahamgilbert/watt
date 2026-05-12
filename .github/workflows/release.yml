@@ -1,0 +1,143 @@
+name: Release Watt (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: "Mark this release as prerelease"
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    name: Build, sign, notarize, release
+    runs-on: macos-26
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Read VERSION
+        id: version
+        run: |
+          VERSION=$(cat VERSION | tr -d '[:space:]')
+          echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.4.app
+
+      - name: Install xcodegen
+        run: brew install xcodegen create-dmg
+
+      - name: Import Developer ID Application certificate
+        uses: apple-actions/import-codesign-certs@8f3fb608891dd2244cdab3d69cd68c0d37a7fe93 # v2.0.0
+        with:
+          keychain-password: ${{ github.run_id }}
+          p12-file-base64: ${{ secrets.APP_CERTIFICATES_P12 }}
+          p12-password: ${{ secrets.APP_CERTIFICATES_P12_PASSWORD }}
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build Watt (Release, signed)
+        env:
+          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+          DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM }}
+        run: |
+          mkdir -p build
+          xcodebuild \
+            -project Watt.xcodeproj \
+            -scheme Watt \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath build/derived \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="${DEVELOPER_ID_APPLICATION}" \
+            DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM}" \
+            OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime" \
+            build
+
+      - name: Stage app
+        run: |
+          APP="build/derived/Build/Products/Release/Watt.app"
+          test -d "${APP}"
+          mkdir -p "build/release"
+          cp -R "${APP}" "build/release/Watt.app"
+          codesign -dvvv "build/release/Watt.app"
+
+      - name: Notarize
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.DEVELOPMENT_TEAM }}
+          NOTARY_APP_SPECIFIC_PASSWORD: ${{ secrets.NOTARY_APP_SPECIFIC_PASSWORD }}
+        run: |
+          # Build a flat zip Apple's notary service can ingest.
+          ditto -c -k --sequesterRsrc --keepParent "build/release/Watt.app" "build/release/Watt.zip"
+          xcrun notarytool submit "build/release/Watt.zip" \
+            --apple-id "${NOTARY_APPLE_ID}" \
+            --team-id "${NOTARY_TEAM_ID}" \
+            --password "${NOTARY_APP_SPECIFIC_PASSWORD}" \
+            --wait
+
+      - name: Staple ticket
+        run: |
+          xcrun stapler staple "build/release/Watt.app"
+          xcrun stapler validate "build/release/Watt.app"
+
+      - name: Build distributable artifacts
+        run: |
+          # Re-zip the now-stapled app for the release attachment.
+          rm -f "build/release/Watt.zip"
+          ditto -c -k --sequesterRsrc --keepParent "build/release/Watt.app" \
+            "build/release/Watt-${VERSION}.zip"
+          # Optional: also build a DMG so users can drag-to-Applications.
+          create-dmg \
+            --volname "Watt ${VERSION}" \
+            --window-size 540 360 \
+            --icon-size 96 \
+            --icon "Watt.app" 140 180 \
+            --app-drop-link 400 180 \
+            --no-internet-enable \
+            "build/release/Watt-${VERSION}.dmg" \
+            "build/release/Watt.app" || echo "create-dmg failed (non-fatal)"
+
+      - name: Notarize and staple DMG
+        if: hashFiles('build/release/*.dmg') != ''
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.DEVELOPMENT_TEAM }}
+          NOTARY_APP_SPECIFIC_PASSWORD: ${{ secrets.NOTARY_APP_SPECIFIC_PASSWORD }}
+        run: |
+          xcrun notarytool submit "build/release/Watt-${VERSION}.dmg" \
+            --apple-id "${NOTARY_APPLE_ID}" \
+            --team-id "${NOTARY_TEAM_ID}" \
+            --password "${NOTARY_APP_SPECIFIC_PASSWORD}" \
+            --wait
+          xcrun stapler staple "build/release/Watt-${VERSION}.dmg"
+          xcrun stapler validate "build/release/Watt-${VERSION}.dmg"
+
+      - name: Generate changelog
+        id: changelog
+        uses: metcalfc/changelog-generator@afdcb9470aebdb2252c0c95a1c130723c9e21f3a # v4.1
+        with:
+          myToken: ${{ secrets.GITHUB_TOKEN }}
+          reverse: 'true'
+
+      - name: Create Release
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v0.1.15
+        with:
+          name: v${{ env.VERSION }}
+          tag_name: v${{ env.VERSION }}
+          prerelease: ${{ inputs.prerelease }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            # What's Changed
+            ${{ steps.changelog.outputs.changelog }}
+          files: |
+            build/release/Watt-${{ env.VERSION }}.zip
+            build/release/Watt-${{ env.VERSION }}.dmg

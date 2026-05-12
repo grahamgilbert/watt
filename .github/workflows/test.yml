@@ -1,0 +1,131 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swiftpm-tests:
+    name: Swift Package tests
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.4.app
+
+      - name: Print toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Run swift test with coverage
+        working-directory: WattCore
+        run: |
+          swift test --enable-code-coverage 2>&1 | tee swift-test.log
+          # Surface a failure if the test runner crashed but printed an error.
+          if grep -q "exited with unexpected signal" swift-test.log; then
+            echo "::error::Test runner crashed"
+            exit 1
+          fi
+
+      - name: Compute coverage
+        working-directory: WattCore
+        id: coverage
+        run: |
+          BIN_PATH="$(swift build --show-bin-path)"
+          PROFDATA="${BIN_PATH}/codecov/default.profdata"
+          if [ ! -f "${PROFDATA}" ]; then
+            echo "::warning::No profdata file found at ${PROFDATA}"
+            exit 0
+          fi
+          XCTEST_BIN="${BIN_PATH}/WattCorePackageTests.xctest/Contents/MacOS/WattCorePackageTests"
+          if [ ! -x "${XCTEST_BIN}" ]; then
+            XCTEST_BIN="$(find "${BIN_PATH}" -name 'WattCorePackageTests' -maxdepth 5 -print -quit)"
+          fi
+          if [ ! -x "${XCTEST_BIN}" ]; then
+            echo "::error::Could not find xctest binary"
+            exit 1
+          fi
+          xcrun llvm-cov report \
+            "${XCTEST_BIN}" \
+            -instr-profile="${PROFDATA}" \
+            -ignore-filename-regex='(\.build/|Tests/|checkouts/|WattHelperProtocol/)' \
+            | tee coverage.txt
+          # Extract overall percentage from final summary line (region coverage,
+          # which is the field labelled "Cover" in the per-region column).
+          PCT=$(awk '/^TOTAL/ {
+              # Find the field that ends with %; first one is region coverage.
+              for (i = 1; i <= NF; i++) {
+                if ($i ~ /%$/) { gsub("%", "", $i); print $i; exit }
+              }
+            }' coverage.txt)
+          echo "coverage=${PCT}" >> "${GITHUB_OUTPUT}"
+          echo "## Code coverage" >> "${GITHUB_STEP_SUMMARY}"
+          echo '```' >> "${GITHUB_STEP_SUMMARY}"
+          cat coverage.txt >> "${GITHUB_STEP_SUMMARY}"
+          echo '```' >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Enforce coverage threshold
+        if: steps.coverage.outputs.coverage != ''
+        run: |
+          PCT="${{ steps.coverage.outputs.coverage }}"
+          THRESHOLD=65
+          echo "Coverage: ${PCT}% (threshold ${THRESHOLD}%)"
+          awk -v c="${PCT}" -v t="${THRESHOLD}" 'BEGIN { exit (c+0 < t+0) }'
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: WattCore/coverage.txt
+          if-no-files-found: ignore
+
+  xcodebuild:
+    name: Xcode build (Watt + WattHelper)
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.4.app
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Build Watt
+        run: |
+          xcodebuild \
+            -project Watt.xcodeproj \
+            -scheme Watt \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build | xcbeautify --renderer github-actions
+
+      - name: Build WattHelper
+        run: |
+          xcodebuild \
+            -project Watt.xcodeproj \
+            -scheme WattHelper \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build | xcbeautify --renderer github-actions

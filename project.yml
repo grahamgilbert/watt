@@ -1,0 +1,95 @@
+name: Watt
+options:
+  bundleIdPrefix: com.grahamgilbert
+  deploymentTarget:
+    macOS: "26.0"
+  developmentLanguage: en
+  groupSortPosition: top
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    CLANG_ENABLE_MODULES: YES
+    ENABLE_HARDENED_RUNTIME: YES
+    DEAD_CODE_STRIPPING: YES
+    OTHER_SWIFT_FLAGS: "$(inherited)"
+    DEVELOPMENT_TEAM: 9D8XP85393
+
+packages:
+  WattCore:
+    path: WattCore
+  WattHelperProtocol:
+    path: WattHelperProtocol
+
+targets:
+  Watt:
+    type: application
+    platform: macOS
+    sources:
+      - path: Watt
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.grahamgilbert.watt
+        PRODUCT_NAME: Watt
+        INFOPLIST_FILE: Watt/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Watt/Watt.entitlements
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: YES
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
+        SWIFT_VERSION: "6.0"
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    dependencies:
+      - package: WattCore
+        product: WattCore
+      - package: WattHelperProtocol
+      - target: WattHelper
+        copy:
+          destination: executables
+        codeSign: true
+    postBuildScripts:
+      - name: "Embed LaunchDaemons plist"
+        script: |
+          set -euo pipefail
+          DEST="${TARGET_BUILD_DIR}/${PRODUCT_NAME}.app/Contents/Library/LaunchDaemons"
+          mkdir -p "${DEST}"
+          cp "${PROJECT_DIR}/WattHelper/Launchd.plist" "${DEST}/com.grahamgilbert.watt.helper.plist"
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(PRODUCT_NAME).app/Contents/Library/LaunchDaemons/com.grahamgilbert.watt.helper.plist
+        basedOnDependencyAnalysis: false
+    info:
+      path: Watt/Info.plist
+      properties:
+        CFBundleName: Watt
+        CFBundleDisplayName: Watt
+        CFBundleIdentifier: com.grahamgilbert.watt
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        CFBundleExecutable: "$(EXECUTABLE_NAME)"
+        CFBundlePackageType: APPL
+        CFBundleIconFile: AppIcon
+        CFBundleIconName: AppIcon
+        LSMinimumSystemVersion: "26.0"
+        LSUIElement: YES
+        NSPrincipalClass: NSApplication
+        NSHumanReadableCopyright: "Copyright © 2026 Graham Gilbert"
+
+  WattHelper:
+    type: tool
+    platform: macOS
+    sources:
+      - path: WattHelper
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.grahamgilbert.watt.helper
+        PRODUCT_NAME: com.grahamgilbert.watt.helper
+        CODE_SIGN_ENTITLEMENTS: WattHelper/WattHelper.entitlements
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: YES
+        SKIP_INSTALL: NO
+        SWIFT_VERSION: "6.0"
+        INSTALL_PATH: "$(LOCAL_LIBRARY_DIR)/LaunchDaemons"
+    dependencies:
+      - package: WattHelperProtocol
