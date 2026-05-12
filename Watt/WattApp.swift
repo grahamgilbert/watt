@@ -2,7 +2,6 @@ import SwiftData
 import SwiftUI
 import WattAI
 import WattAnalysis
-import WattHelperClient
 import WattModels
 import WattSampling
 import WattUI
@@ -14,7 +13,6 @@ struct WattApp: App {
     @State private var coordinator: SamplingCoordinator
     @State private var loginItem: LoginItemController
     private let reportCoordinator: ReportCoordinator
-    private let helperClient = HelperClient()
 
     init() {
         let container: ModelContainer

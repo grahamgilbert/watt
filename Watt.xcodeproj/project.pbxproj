@@ -7,53 +7,18 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		17EFA031F86F15FE66139A7F /* WattHelperProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = 13CE4D89DF8DA35773C9BF2A /* WattHelperProtocol */; };
-		1B55D39ED5BE364AFB1E9EEA /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAF6F1888B98140A668AA0F0 /* main.swift */; };
-		47D0ACCA23CB8083946FFD1E /* WattHelperProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = 3B5DFDCD47D5BFA26FD2C980 /* WattHelperProtocol */; };
 		4CFB54C226B1CF2663401BCE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 11C2600FBE18C40B488C16C5 /* Assets.xcassets */; };
-		60370821D47442BCFFD76BCD /* Launchd.plist in Resources */ = {isa = PBXBuildFile; fileRef = 0CAAC9A47FC449BBF52D3D80 /* Launchd.plist */; };
 		6ADFEB6FD7A894732A5190F5 /* WattApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30BFAFE54BBFE4DBC8B49123 /* WattApp.swift */; };
-		E44204CDDCDAE062A6AD37AD /* WattHelper in Embed Dependencies */ = {isa = PBXBuildFile; fileRef = 61744F246D382A21FED5F134 /* WattHelper */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		FBAA0149A257A6BA9C85BBE3 /* WattCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8C13F84BBA5E8B06D35AE312 /* WattCore */; };
 /* End PBXBuildFile section */
 
-/* Begin PBXContainerItemProxy section */
-		67413198A2A1A852CB2CCCE1 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = FCC062B85B125EBEC8858488 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 494598EDD1FFB651593F88F6;
-			remoteInfo = WattHelper;
-		};
-/* End PBXContainerItemProxy section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		06552927F47AFEC8BB35D8BC /* Embed Dependencies */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 6;
-			files = (
-				E44204CDDCDAE062A6AD37AD /* WattHelper in Embed Dependencies */,
-			);
-			name = "Embed Dependencies";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
-
 /* Begin PBXFileReference section */
-		0CAAC9A47FC449BBF52D3D80 /* Launchd.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Launchd.plist; sourceTree = "<group>"; };
 		11C2600FBE18C40B488C16C5 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		30BFAFE54BBFE4DBC8B49123 /* WattApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WattApp.swift; sourceTree = "<group>"; };
-		61744F246D382A21FED5F134 /* WattHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = WattHelper; sourceTree = BUILT_PRODUCTS_DIR; };
-		668A58985254E7A97850A39C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		75BF85705AE578704E0E1CF3 /* WattHelperProtocol */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WattHelperProtocol; path = WattHelperProtocol; sourceTree = SOURCE_ROOT; };
 		861EE81C979EBB31A68D0E71 /* WattCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = WattCore; path = WattCore; sourceTree = SOURCE_ROOT; };
 		908FF008D5E578D4E8051FC3 /* Watt.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Watt.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9E731284F3D765EF9C791147 /* Watt.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Watt.entitlements; sourceTree = "<group>"; };
-		9FE46655B66CA9B1C67FF64C /* WattHelper.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WattHelper.entitlements; sourceTree = "<group>"; };
 		D4EC5CD7EB446BE14307A397 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		DAF6F1888B98140A668AA0F0 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -62,37 +27,16 @@
 			buildActionMask = 2147483647;
 			files = (
 				FBAA0149A257A6BA9C85BBE3 /* WattCore in Frameworks */,
-				47D0ACCA23CB8083946FFD1E /* WattHelperProtocol in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		B456139C228ED9EA26B7A3B3 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				17EFA031F86F15FE66139A7F /* WattHelperProtocol in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		222B31949D0E7693F9F621BE /* WattHelper */ = {
-			isa = PBXGroup;
-			children = (
-				668A58985254E7A97850A39C /* Info.plist */,
-				0CAAC9A47FC449BBF52D3D80 /* Launchd.plist */,
-				DAF6F1888B98140A668AA0F0 /* main.swift */,
-				9FE46655B66CA9B1C67FF64C /* WattHelper.entitlements */,
-			);
-			path = WattHelper;
-			sourceTree = "<group>";
-		};
 		304C73747A80285643248070 /* Packages */ = {
 			isa = PBXGroup;
 			children = (
 				861EE81C979EBB31A68D0E71 /* WattCore */,
-				75BF85705AE578704E0E1CF3 /* WattHelperProtocol */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
@@ -102,7 +46,6 @@
 			children = (
 				304C73747A80285643248070 /* Packages */,
 				8A873A53D59C57FE0C6F37AD /* Watt */,
-				222B31949D0E7693F9F621BE /* WattHelper */,
 				AD71DC9513FCF469A640AAC3 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -122,7 +65,6 @@
 			isa = PBXGroup;
 			children = (
 				908FF008D5E578D4E8051FC3 /* Watt.app */,
-				61744F246D382A21FED5F134 /* WattHelper */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -137,42 +79,18 @@
 				1817D82505829701838ABFB1 /* Sources */,
 				8CAB6217E736770CFB149DD0 /* Resources */,
 				302084BC301FF37CA79B7205 /* Frameworks */,
-				06552927F47AFEC8BB35D8BC /* Embed Dependencies */,
-				FA875D77ADED374FDCBA3463 /* Embed LaunchDaemons plist */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				8D6D5BDC682CE41B4AB5AA84 /* PBXTargetDependency */,
 			);
 			name = Watt;
 			packageProductDependencies = (
 				8C13F84BBA5E8B06D35AE312 /* WattCore */,
-				3B5DFDCD47D5BFA26FD2C980 /* WattHelperProtocol */,
 			);
 			productName = Watt;
 			productReference = 908FF008D5E578D4E8051FC3 /* Watt.app */;
 			productType = "com.apple.product-type.application";
-		};
-		494598EDD1FFB651593F88F6 /* WattHelper */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 68875042FA9D4FF9FCEE4F01 /* Build configuration list for PBXNativeTarget "WattHelper" */;
-			buildPhases = (
-				A7B826863B9D689EE8536A8A /* Sources */,
-				1AC4FED92A5FF224A78D0A3B /* Resources */,
-				B456139C228ED9EA26B7A3B3 /* Frameworks */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = WattHelper;
-			packageProductDependencies = (
-				13CE4D89DF8DA35773C9BF2A /* WattHelperProtocol */,
-			);
-			productName = WattHelper;
-			productReference = 61744F246D382A21FED5F134 /* WattHelper */;
-			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
 
@@ -184,10 +102,6 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					41BABFD0A42F3FF1DFEBBB1D = {
-						DevelopmentTeam = 9D8XP85393;
-						ProvisioningStyle = Automatic;
-					};
-					494598EDD1FFB651593F88F6 = {
 						DevelopmentTeam = 9D8XP85393;
 						ProvisioningStyle = Automatic;
 					};
@@ -204,7 +118,6 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				72227E8E4080728CA3DE1221 /* XCLocalSwiftPackageReference "WattCore" */,
-				38F643CC613865F9C6FA6CBB /* XCLocalSwiftPackageReference "WattHelperProtocol" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AD71DC9513FCF469A640AAC3 /* Products */;
@@ -212,20 +125,11 @@
 			projectRoot = "";
 			targets = (
 				41BABFD0A42F3FF1DFEBBB1D /* Watt */,
-				494598EDD1FFB651593F88F6 /* WattHelper */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		1AC4FED92A5FF224A78D0A3B /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				60370821D47442BCFFD76BCD /* Launchd.plist in Resources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		8CAB6217E736770CFB149DD0 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -236,29 +140,6 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
-/* Begin PBXShellScriptBuildPhase section */
-		FA875D77ADED374FDCBA3463 /* Embed LaunchDaemons plist */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Embed LaunchDaemons plist";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(PRODUCT_NAME).app/Contents/Library/LaunchDaemons/com.grahamgilbert.watt.helper.plist",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${PRODUCT_NAME}.app/Contents/Library/LaunchDaemons\"\nmkdir -p \"${DEST}\"\ncp \"${PROJECT_DIR}/WattHelper/Launchd.plist\" \"${DEST}/com.grahamgilbert.watt.helper.plist\"\n";
-		};
-/* End PBXShellScriptBuildPhase section */
-
 /* Begin PBXSourcesBuildPhase section */
 		1817D82505829701838ABFB1 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -268,23 +149,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A7B826863B9D689EE8536A8A /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				1B55D39ED5BE364AFB1E9EEA /* main.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXTargetDependency section */
-		8D6D5BDC682CE41B4AB5AA84 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 494598EDD1FFB651593F88F6 /* WattHelper */;
-			targetProxy = 67413198A2A1A852CB2CCCE1 /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		4141709658CE2814D8301FF2 /* Release */ = {
@@ -348,27 +213,6 @@
 			};
 			name = Release;
 		};
-		4771BAA821D206F1E94D3C46 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = WattHelper/WattHelper.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				COMBINE_HIDPI_IMAGES = YES;
-				ENABLE_HARDENED_RUNTIME = YES;
-				INFOPLIST_FILE = WattHelper/Info.plist;
-				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/LaunchDaemons";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.grahamgilbert.watt.helper;
-				PRODUCT_NAME = com.grahamgilbert.watt.helper;
-				SDKROOT = macosx;
-				SKIP_INSTALL = NO;
-				SWIFT_VERSION = 6.0;
-			};
-			name = Release;
-		};
 		5EEC6C24CB4B1616C5EDA9D8 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -386,27 +230,6 @@
 				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
-		};
-		A2BEF47708A0E7960CAB147C /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = WattHelper/WattHelper.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				COMBINE_HIDPI_IMAGES = YES;
-				ENABLE_HARDENED_RUNTIME = YES;
-				INFOPLIST_FILE = WattHelper/Info.plist;
-				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/LaunchDaemons";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.grahamgilbert.watt.helper;
-				PRODUCT_NAME = com.grahamgilbert.watt.helper;
-				SDKROOT = macosx;
-				SKIP_INSTALL = NO;
-				SWIFT_VERSION = 6.0;
-			};
-			name = Debug;
 		};
 		C65C3AA9342C65E55B8C453B /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -506,15 +329,6 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		68875042FA9D4FF9FCEE4F01 /* Build configuration list for PBXNativeTarget "WattHelper" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				A2BEF47708A0E7960CAB147C /* Debug */,
-				4771BAA821D206F1E94D3C46 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Debug;
-		};
 		99CB7C75B9DE110A2E298E0B /* Build configuration list for PBXProject "Watt" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -527,10 +341,6 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		38F643CC613865F9C6FA6CBB /* XCLocalSwiftPackageReference "WattHelperProtocol" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = WattHelperProtocol;
-		};
 		72227E8E4080728CA3DE1221 /* XCLocalSwiftPackageReference "WattCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = WattCore;
@@ -538,14 +348,6 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		13CE4D89DF8DA35773C9BF2A /* WattHelperProtocol */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = WattHelperProtocol;
-		};
-		3B5DFDCD47D5BFA26FD2C980 /* WattHelperProtocol */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = WattHelperProtocol;
-		};
 		8C13F84BBA5E8B06D35AE312 /* WattCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = WattCore;

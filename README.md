@@ -29,9 +29,7 @@ xcodebuild -scheme Watt -configuration Debug build
 
 ```
 Watt/                  Menubar app target (LSUIElement = YES)
-WattHelper/            SMAppService privileged daemon (runs powermetrics)
 WattCore/              SwiftPM package: models, sampling, analysis, AI, UI
-WattHelperProtocol/    SwiftPM package: shared XPC protocol
 ```
 
 See `/Users/graham_gilbert/.claude/plans/i-want-to-write-wiggly-elephant.md` for full design notes.

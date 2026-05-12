@@ -1,9 +1,7 @@
 included:
   - Watt
-  - WattHelper
   - WattCore/Sources
   - WattCore/Tests
-  - WattHelperProtocol/Sources
 
 excluded:
   - .build

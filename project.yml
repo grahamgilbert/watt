@@ -20,8 +20,6 @@ settings:
 packages:
   WattCore:
     path: WattCore
-  WattHelperProtocol:
-    path: WattHelperProtocol
 
 targets:
   Watt:
@@ -44,21 +42,6 @@ targets:
     dependencies:
       - package: WattCore
         product: WattCore
-      - package: WattHelperProtocol
-      - target: WattHelper
-        copy:
-          destination: executables
-        codeSign: true
-    postBuildScripts:
-      - name: "Embed LaunchDaemons plist"
-        script: |
-          set -euo pipefail
-          DEST="${TARGET_BUILD_DIR}/${PRODUCT_NAME}.app/Contents/Library/LaunchDaemons"
-          mkdir -p "${DEST}"
-          cp "${PROJECT_DIR}/WattHelper/Launchd.plist" "${DEST}/com.grahamgilbert.watt.helper.plist"
-        outputFiles:
-          - $(TARGET_BUILD_DIR)/$(PRODUCT_NAME).app/Contents/Library/LaunchDaemons/com.grahamgilbert.watt.helper.plist
-        basedOnDependencyAnalysis: false
     info:
       path: Watt/Info.plist
       properties:
@@ -75,21 +58,3 @@ targets:
         LSUIElement: YES
         NSPrincipalClass: NSApplication
         NSHumanReadableCopyright: "Copyright © 2026 Graham Gilbert"
-
-  WattHelper:
-    type: tool
-    platform: macOS
-    sources:
-      - path: WattHelper
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.grahamgilbert.watt.helper
-        PRODUCT_NAME: com.grahamgilbert.watt.helper
-        CODE_SIGN_ENTITLEMENTS: WattHelper/WattHelper.entitlements
-        CODE_SIGN_STYLE: Automatic
-        ENABLE_HARDENED_RUNTIME: YES
-        SKIP_INSTALL: NO
-        SWIFT_VERSION: "6.0"
-        INSTALL_PATH: "$(LOCAL_LIBRARY_DIR)/LaunchDaemons"
-    dependencies:
-      - package: WattHelperProtocol
