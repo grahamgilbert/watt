@@ -1,5 +1,7 @@
 # Watt
 
+> My battery is melting! WATTTTT?!
+
 A macOS 26 menubar app that watches your battery, finds drain episodes, and writes a real Markdown report explaining what happened — with on-device AI prose grounded in deterministic timeline + per-process telemetry.
 
 Built for Airbnb engineers who need evidence to bring to their security team when corporate agent software is silently melting their laptops.
