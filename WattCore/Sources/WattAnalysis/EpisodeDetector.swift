@@ -204,20 +204,25 @@ public struct EpisodeDetector: Sendable {
 
     private mutating func appendToWindow(_ point: SamplePoint) {
         window.append(point)
-        // Drop samples older than (newest - windowSeconds). Always keep at
-        // least two so we can compute a slope.
+        // Drop samples whose age relative to the newest is *strictly greater
+        // than* windowSeconds. Keeping samples whose age is exactly
+        // windowSeconds (boundary case) ensures the window can grow to span
+        // the full configured duration.
         let cutoff = point.timestamp.addingTimeInterval(-configuration.windowSeconds)
         while window.count > 2, let first = window.first, first.timestamp < cutoff {
             window.removeFirst()
         }
     }
 
-    /// True only once the oldest sample in the window is at least
-    /// `windowSeconds` old, so windowed metrics describe a full real-time
-    /// window rather than a partial one.
+    /// True once the buffered window spans (within sampling tolerance) the
+    /// configured duration. Sampling cadence > 0 means consecutive samples
+    /// are typically `cadence` apart, so the maximum span we ever observe
+    /// is roughly `windowSeconds - cadence`. Allow a 90% tolerance so the
+    /// detector starts evaluating without waiting for a perfect span.
     public func windowIsSaturated() -> Bool {
         guard let first = window.first, let last = window.last else { return false }
-        return last.timestamp.timeIntervalSince(first.timestamp) >= configuration.windowSeconds
+        let span = last.timestamp.timeIntervalSince(first.timestamp)
+        return span >= configuration.windowSeconds * 0.9
     }
 
     /// Total battery drop in percent across the current window. Negative
