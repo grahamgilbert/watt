@@ -47,9 +47,35 @@ private final class HelperImpl: NSObject, NSXPCListenerDelegate, WattHelperXPC {
     }
 
     func listProcesses(reply: @escaping (Data?, Error?) -> Void) {
-        let snapshots = enumerateProcesses()
+        // Run powermetrics and proc enumeration concurrently via DispatchGroup
+        // so the XPC call only blocks for ~1 second total.
+        var snapshots: [HelperProcessInfo] = []
+        var impacts: [Int32: Double] = [:]
+        let group = DispatchGroup()
+
+        group.enter()
+        DispatchQueue.global().async {
+            impacts = fetchEnergyImpacts(intervalMs: 1000)
+            group.leave()
+        }
+
+        group.enter()
+        DispatchQueue.global().async {
+            snapshots = enumerateProcesses()
+            group.leave()
+        }
+
+        group.wait()
+
+        // Merge energy_impact into each process record
+        let merged = snapshots.map { info -> HelperProcessInfo in
+            var copy = info
+            copy.energyImpact = impacts[info.pid] ?? 0
+            return copy
+        }
+
         do {
-            let data = try JSONEncoder().encode(snapshots)
+            let data = try JSONEncoder().encode(merged)
             reply(data, nil)
         } catch {
             reply(nil, error)
@@ -117,6 +143,48 @@ private func enumerateProcesses() -> [HelperProcessInfo] {
         ))
     }
     return out
+}
+
+// MARK: - powermetrics energy impact
+
+/// Runs `powermetrics --samplers tasks --show-process-energy` once for the
+/// given interval and returns a pid → energy_impact map.
+/// Requires root — only call from the helper.
+private func fetchEnergyImpacts(intervalMs: Int = 1000) -> [Int32: Double] {
+    let task = Process()
+    task.executableURL = URL(fileURLWithPath: "/usr/bin/powermetrics")
+    task.arguments = [
+        "--samplers", "tasks",
+        "--show-process-energy",
+        "-f", "plist",
+        "-n", "1",
+        "-i", String(intervalMs)
+    ]
+    let pipe = Pipe()
+    task.standardOutput = pipe
+    task.standardError = Pipe()
+    do {
+        try task.launch()
+        task.waitUntilExit()
+    } catch {
+        logger.error("powermetrics launch failed: \(error.localizedDescription)")
+        return [:]
+    }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    guard !data.isEmpty else { return [:] }
+
+    struct PMTask: Decodable {
+        let pid: Int32
+        let energy_impact: Double?
+    }
+    struct PMOutput: Decodable {
+        let tasks: [PMTask]?
+    }
+    guard let parsed = try? PropertyListDecoder().decode(PMOutput.self, from: data),
+          let tasks = parsed.tasks else { return [:] }
+    var map: [Int32: Double] = Dictionary(minimumCapacity: tasks.count)
+    for t in tasks { map[t.pid] = t.energy_impact ?? 0 }
+    return map
 }
 
 private let listener = NSXPCListener(machServiceName: WattHelperMachServiceName)

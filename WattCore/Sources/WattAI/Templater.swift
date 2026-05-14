@@ -10,21 +10,37 @@ public enum Templater {
         stats: EpisodeStats,
         suspects: [Suspect],
         securityAgents: [Suspect] = [],
-        patterns: PatternFlags
+        patterns: PatternFlags,
+        trigger: DrainEpisodeTrigger = .batteryDrain
     ) -> DrainVerdict {
         let topName = suspects.first?.name ?? "an unidentified process"
-        let drainPct = Int(stats.drainPercent.rounded())
         let durationMin = Int(stats.durationMinutes.rounded())
 
-        let headline = "Battery drained \(drainPct)% in \(durationMin) min — top suspect: \(topName)"
+        let headline: String
+        switch trigger {
+        case .acHighEnergy:
+            headline = "High sustained energy load over \(durationMin) min (AC) — top suspect: \(topName)"
+        case .batteryDrain:
+            let drainPct = Int(stats.drainPercent.rounded())
+            headline = "Battery drained \(drainPct)% in \(durationMin) min — top suspect: \(topName)"
+        case .userTriggered:
+            headline = "User-requested look-back over \(durationMin) min — top suspect: \(topName)"
+        }
 
         var sentences: [String] = []
-        sentences.append(
-            "Battery fell from \(intPct(stats.startPercent))% to \(intPct(stats.endPercent))% over \(durationMin) min, peaking at \(rate(stats.peakDrainRatePctPerHour)) %/h."
-        )
+        switch trigger {
+        case .acHighEnergy:
+            sentences.append(
+                "Machine was on AC power for the full episode; the trigger was sustained high energy load over \(durationMin) min, peaking at \(Int((stats.peakCPUUsage * 100).rounded()))% CPU."
+            )
+        case .batteryDrain, .userTriggered:
+            sentences.append(
+                "Battery fell from \(intPct(stats.startPercent))% to \(intPct(stats.endPercent))% over \(durationMin) min, peaking at \(rate(stats.peakDrainRatePctPerHour)) %/h."
+            )
+        }
         if let pair = patterns.correlatedWriterReader {
             sentences.append(
-                "`\(pair.writer.name)` and `\(pair.reader.name)` formed a writer/reader pair — \(gb(pair.writerBytes)) written by `\(pair.writer.name)` was read back \(gb(pair.readerBytes)) by `\(pair.reader.name)`, which is the canonical shape of a security agent scanning every file another tool produces."
+                "`\(pair.writer.name)` and `\(pair.reader.name)` formed a writer/reader pair — \(gb(pair.writerBytes)) written by `\(pair.writer.name)` was read back \(gb(pair.readerBytes)) by `\(pair.reader.name)`, which is the canonical shape of a daemon scanning every file another tool produces."
             )
         }
         if patterns.thermalThrottle {
@@ -38,10 +54,10 @@ public enum Templater {
             )
         }
         if !securityAgents.isEmpty {
-            let names = securityAgents.prefix(4).map { agentDisplayName($0) }
-            let suffix = securityAgents.count > 4 ? ", and \(securityAgents.count - 4) other agent(s)" : ""
+            let names = securityAgents.prefix(4).map { $0.name }.joined(separator: ", ")
+            let suffix = securityAgents.count > 4 ? ", and \(securityAgents.count - 4) other daemon(s)" : ""
             sentences.append(
-                "Security/MDM agents observed during this window: \(names.joined(separator: ", "))\(suffix). They run with privileged scheduling regardless of how much CPU each one appears to use individually."
+                "System daemons / LaunchDaemons observed: \(names)\(suffix). They run as root and contribute to system load regardless of how much CPU they appear to use individually."
             )
         }
         if sentences.count == 1 {
@@ -59,8 +75,8 @@ public enum Templater {
             actions.append("Ask Security to add `\(pair.writer.name)`'s output paths to `\(pair.reader.name)`'s scanning exclusion list.")
         }
         if !securityAgents.isEmpty {
-            let names = securityAgents.prefix(3).map(agentDisplayName).joined(separator: ", ")
-            actions.append("Open a ticket with Security listing \(names) — share this report — and ask whether the agent(s) can be configured with development-workload exclusions.")
+            let names = securityAgents.prefix(3).map { $0.name }.joined(separator: ", ")
+            actions.append("Open a ticket with IT/Security listing \(names) — share this report — and ask whether the daemon(s) can be configured with development-workload exclusions.")
         }
         if patterns.thermalThrottle {
             actions.append("Capture an Activity Monitor sample.txt and a `pmset -g log` slice for the time window so you have a second source of truth.")
@@ -70,7 +86,7 @@ public enum Templater {
         }
         actions.append("Re-run the same workload after applying the suggested change and compare report-to-report.")
         if actions.count < 3 {
-            actions.append("Share this Markdown report verbatim in #ask-security; the timeline and suspect tables are reproducible.")
+            actions.append("Share this Markdown report verbatim with your IT/Security team; the timeline and suspect tables are reproducible.")
         }
 
         let paragraph = sentences.joined(separator: " ")
@@ -80,11 +96,6 @@ public enum Templater {
             suspectRationales: rationales,
             recommendedActions: actions
         )
-    }
-
-    static func agentDisplayName(_ suspect: Suspect) -> String {
-        let classification = SecurityAgents.classify(name: suspect.name, bundleID: suspect.bundleID)
-        return classification.displayName ?? suspect.name
     }
 
     static func templateRationale(for suspect: Suspect) -> String {

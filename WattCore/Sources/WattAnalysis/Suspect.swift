@@ -13,6 +13,8 @@ public struct Suspect: Sendable, Hashable, Codable {
     public var peakResidentBytes: UInt64
     public var samplesCovered: Int
     public var score: Double
+    /// Summed Activity Monitor energy impact score. Zero if powermetrics was unavailable.
+    public var totalEnergyImpact: Double
 
     public init(
         pid: Int32,
@@ -26,7 +28,8 @@ public struct Suspect: Sendable, Hashable, Codable {
         totalPageins: UInt64,
         peakResidentBytes: UInt64,
         samplesCovered: Int,
-        score: Double
+        score: Double,
+        totalEnergyImpact: Double = 0
     ) {
         self.pid = pid
         self.name = name
@@ -40,5 +43,6 @@ public struct Suspect: Sendable, Hashable, Codable {
         self.peakResidentBytes = peakResidentBytes
         self.samplesCovered = samplesCovered
         self.score = score
+        self.totalEnergyImpact = totalEnergyImpact
     }
 }

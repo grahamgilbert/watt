@@ -70,7 +70,8 @@ public actor HelperProcSampler {
                     diskReadBytesDelta: readDelta,
                     diskWriteBytesDelta: writeDelta,
                     pageinsDelta: pageinsDelta,
-                    residentBytes: info.residentBytes
+                    residentBytes: info.residentBytes,
+                    energyImpact: info.energyImpact
                 ))
             }
 

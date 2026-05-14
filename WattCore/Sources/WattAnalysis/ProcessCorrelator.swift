@@ -52,8 +52,12 @@ public struct ProcessCorrelator: Sendable {
             Double($0.samplesCovered) / Double(samples.count) >= configuration.minCoverageFraction
         }
         let p95 = percentiles(qualifying: qualifying)
+        let hasEnergyImpact = qualifying.contains { $0.totalEnergyImpact > 0 }
         let scored = qualifying.map { entry -> Suspect in
-            let energyTerm = normalize(Double(entry.totalEnergyNanojoules), p95.energy) * configuration.weightEnergy
+            let energyValue = hasEnergyImpact
+                ? entry.totalEnergyImpact
+                : Double(entry.totalEnergyNanojoules)
+            let energyTerm = normalize(energyValue, p95.energy) * configuration.weightEnergy
             let cpuTerm = normalize(entry.totalCPUTime * Double(configuration.coreCount), p95.cpu) * configuration.weightCPU
             let diskTerm = normalize(Double(entry.totalDiskReadBytes &+ entry.totalDiskWriteBytes), p95.disk) * configuration.weightDisk
             let pageTerm = normalize(Double(entry.totalPageins), p95.pageins) * configuration.weightPageins
@@ -70,7 +74,8 @@ public struct ProcessCorrelator: Sendable {
                 totalPageins: entry.totalPageins,
                 peakResidentBytes: entry.peakResidentBytes,
                 samplesCovered: entry.samplesCovered,
-                score: score
+                score: score,
+                totalEnergyImpact: entry.totalEnergyImpact
             )
         }
         var top = scored.sorted { $0.score > $1.score }.prefix(configuration.topN).map { $0 }
@@ -103,6 +108,7 @@ public struct ProcessCorrelator: Sendable {
         var totalCPUTime: Double = 0
         var totalEnergyNanojoules: UInt64 = 0
         var totalBilledEnergy: UInt64 = 0
+        var totalEnergyImpact: Double = 0
         var totalDiskReadBytes: UInt64 = 0
         var totalDiskWriteBytes: UInt64 = 0
         var totalPageins: UInt64 = 0
@@ -126,6 +132,7 @@ public struct ProcessCorrelator: Sendable {
                 entry.totalCPUTime += proc.cpuTimeDelta
                 entry.totalEnergyNanojoules &+= proc.energyNanojoulesDelta
                 entry.totalBilledEnergy &+= proc.billedEnergyDelta
+                entry.totalEnergyImpact += proc.energyImpact
                 entry.totalDiskReadBytes &+= proc.diskReadBytesDelta
                 entry.totalDiskWriteBytes &+= proc.diskWriteBytesDelta
                 entry.totalPageins &+= proc.pageinsDelta
@@ -140,8 +147,14 @@ public struct ProcessCorrelator: Sendable {
     private struct Percentiles { var energy: Double; var cpu: Double; var disk: Double; var pageins: Double }
 
     private func percentiles(qualifying: some Collection<AggregateEntry>) -> Percentiles {
-        Percentiles(
-            energy: percentile(qualifying.map { Double($0.totalEnergyNanojoules) }, 0.95),
+        // Prefer energyImpact (Activity Monitor's composite score) when available.
+        // Fall back to energyNanojoules if powermetrics data wasn't collected.
+        let hasEnergyImpact = qualifying.contains { $0.totalEnergyImpact > 0 }
+        let energyValues: [Double] = hasEnergyImpact
+            ? qualifying.map { $0.totalEnergyImpact }
+            : qualifying.map { Double($0.totalEnergyNanojoules) }
+        return Percentiles(
+            energy: percentile(energyValues, 0.95),
             cpu: percentile(qualifying.map { $0.totalCPUTime * Double(configuration.coreCount) }, 0.95),
             disk: percentile(qualifying.map { Double($0.totalDiskReadBytes &+ $0.totalDiskWriteBytes) }, 0.95),
             pageins: percentile(qualifying.map { Double($0.totalPageins) }, 0.95)

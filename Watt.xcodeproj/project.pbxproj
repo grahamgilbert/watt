@@ -141,7 +141,7 @@
 				8CAB6217E736770CFB149DD0 /* Resources */,
 				302084BC301FF37CA79B7205 /* Frameworks */,
 				06552927F47AFEC8BB35D8BC /* Embed Dependencies */,
-				FA875D77ADED374FDCBA3463 /* Embed LaunchDaemons plist */,
+				A08184BAE9D0661181DA5857 /* Embed LaunchDaemons plist and install to /Applications (Debug) */,
 			);
 			buildRules = (
 			);
@@ -188,11 +188,9 @@
 				TargetAttributes = {
 					41BABFD0A42F3FF1DFEBBB1D = {
 						DevelopmentTeam = 9D8XP85393;
-						ProvisioningStyle = Automatic;
 					};
 					494598EDD1FFB651593F88F6 = {
 						DevelopmentTeam = 9D8XP85393;
-						ProvisioningStyle = Automatic;
 					};
 				};
 			};
@@ -240,7 +238,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		FA875D77ADED374FDCBA3463 /* Embed LaunchDaemons plist */ = {
+		A08184BAE9D0661181DA5857 /* Embed LaunchDaemons plist and install to /Applications (Debug) */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -250,15 +248,14 @@
 			);
 			inputPaths = (
 			);
-			name = "Embed LaunchDaemons plist";
+			name = "Embed LaunchDaemons plist and install to /Applications (Debug)";
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(PRODUCT_NAME).app/Contents/Library/LaunchDaemons/com.grahamgilbert.watt.helper.plist",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${PRODUCT_NAME}.app/Contents/Library/LaunchDaemons\"\nmkdir -p \"${DEST}\"\ncp \"${PROJECT_DIR}/WattHelper/Launchd.plist\" \"${DEST}/com.grahamgilbert.watt.helper.plist\"\n";
+			shellScript = "set -euo pipefail\n# Copy plist into the signed bundle then re-seal only the outer wrapper.\n# We do NOT use --deep so nested binaries (including the helper) are\n# left untouched. The helper was already signed by the prior phase.\nPLIST_DEST=\"${TARGET_BUILD_DIR}/${PRODUCT_NAME}.app/Contents/Library/LaunchDaemons/com.grahamgilbert.watt.helper.plist\"\nmkdir -p \"$(dirname \"${PLIST_DEST}\")\"\ncp \"${PROJECT_DIR}/WattHelper/Launchd.plist\" \"${PLIST_DEST}\"\n# Re-seal the outer bundle. --no-strict disables the nested-binary\n# check so unsigned debug artifacts don't block the sign.\n/usr/bin/codesign --force \\\n  --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" \\\n  --entitlements \"${PROJECT_DIR}/Watt/Watt.entitlements\" \\\n  --timestamp=none \\\n  --preserve-metadata=identifier,flags \\\n  --no-strict \\\n  \"${TARGET_BUILD_DIR}/${PRODUCT_NAME}.app\"\nif [ \"${CONFIGURATION}\" = \"Debug\" ]; then\n  # /Applications/Watt.app is user-owned, so no sudo needed for copy.\n  rm -rf /Applications/Watt.app\n  ditto \"${TARGET_BUILD_DIR}/${PRODUCT_NAME}.app\" /Applications/Watt.app\n  # Kick launchd so it picks up the new helper binary.\n  # Requires root; fail silently if sudo token is not cached.\n  sudo -n launchctl kickstart -k system/com.grahamgilbert.watt.helper 2>/dev/null || true\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -356,7 +353,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = WattHelper/WattHelper.entitlements;
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "Developer ID Application: Graham Gilbert (9D8XP85393)";
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -380,8 +379,11 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Watt/Watt.entitlements;
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_IDENTITY = "Developer ID Application: Graham Gilbert (9D8XP85393)";
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_DEBUG_DYLIB = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = Watt/Info.plist;
@@ -397,6 +399,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = WattHelper/WattHelper.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
@@ -489,8 +492,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Watt/Watt.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_DEBUG_DYLIB = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = Watt/Info.plist;

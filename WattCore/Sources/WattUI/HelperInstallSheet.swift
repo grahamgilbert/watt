@@ -5,11 +5,19 @@ import WattHelperClient
 /// version doesn't match). The app refuses to do anything until the user
 /// either approves the install or quits.
 public struct HelperInstallSheet: View {
-    let gate: HelperGate
+    @Bindable var gate: HelperGate
 
     public init(gate: HelperGate) { self.gate = gate }
 
     public var body: some View {
+        if case .needsInstall(.wrongLocation(let path)) = gate.state {
+            wrongLocationView(current: path)
+        } else {
+            installView
+        }
+    }
+
+    private var installView: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
                 Image(systemName: "lock.shield.fill")
@@ -82,6 +90,55 @@ public struct HelperInstallSheet: View {
         .frame(width: 540)
     }
 
+    private func wrongLocationView(current: String) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                Image(systemName: "folder.badge.questionmark")
+                    .font(.system(size: 36))
+                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Watt must be in your Applications folder")
+                        .font(.title3)
+                        .bold()
+                    Text("Move Watt to /Applications, then relaunch.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Divider()
+
+            Text(
+                "macOS requires privileged helpers to be installed from a trusted location."
+                + " Watt's background helper (which reads root-owned process telemetry) will"
+                + " not install or run unless Watt.app is in **/Applications**."
+            )
+            .font(.body)
+            .foregroundStyle(.secondary)
+
+            Text("Currently running from:")
+                .font(.headline)
+            Text(current)
+                .font(.system(.body, design: .monospaced))
+                .foregroundStyle(.red)
+                .textSelection(.enabled)
+
+            HStack {
+                Spacer()
+                Button(role: .destructive) { gate.quit() } label: { Text("Quit Watt") }
+                Button {
+                    NSWorkspace.shared.selectFile(current, inFileViewerRootedAtPath: "")
+                } label: {
+                    Text("Show in Finder")
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(28)
+        .frame(width: 540)
+    }
+
     private var installing: Bool {
         if case .installing = gate.state { return true }
         return false
@@ -97,6 +154,8 @@ public struct HelperInstallSheet: View {
             return "An older helper (protocol v\(installed)) is installed. Watt needs protocol v\(expected). Re-install to update."
         case .needsInstall(.unreachable(let message)):
             return "Couldn't reach the installed helper: \(message)"
+        case .needsInstall(.wrongLocation):
+            return ""
         case .installing:
             return "Installing…"
         case .installFailed:

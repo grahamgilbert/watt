@@ -5,7 +5,7 @@ public let WattHelperMachServiceName = "com.grahamgilbert.watt.helper"
 /// Bumped every time the helper's wire protocol changes. The app refuses to
 /// run if the installed helper reports a version different from this — the
 /// user is told to reinstall.
-public let WattHelperProtocolVersion = 1
+public let WattHelperProtocolVersion = 2
 
 /// Plain-data envelope the helper returns for every visible pid. Mirrors
 /// what `proc_pid_rusage_v6` would have given us, but the helper has root
@@ -26,6 +26,10 @@ public struct HelperProcessInfo: Codable, Sendable {
     public var pageins: UInt64
     public var residentBytes: UInt64
     public var euid: UInt32
+    /// Apple's composite energy impact score for this process (same metric
+    /// Activity Monitor uses). Populated from powermetrics when available;
+    /// zero if powermetrics is unavailable or the process wasn't in its output.
+    public var energyImpact: Double
 
     public init(
         pid: Int32,
@@ -41,7 +45,8 @@ public struct HelperProcessInfo: Codable, Sendable {
         diskWriteBytes: UInt64,
         pageins: UInt64,
         residentBytes: UInt64,
-        euid: UInt32
+        euid: UInt32,
+        energyImpact: Double = 0
     ) {
         self.pid = pid
         self.name = name
@@ -57,6 +62,7 @@ public struct HelperProcessInfo: Codable, Sendable {
         self.pageins = pageins
         self.residentBytes = residentBytes
         self.euid = euid
+        self.energyImpact = energyImpact
     }
 }
 

@@ -16,8 +16,11 @@ public struct ProcessBucket: Sendable, Hashable, Codable {
         public let diskReadBytes: UInt64
         public let diskWriteBytes: UInt64
         public let peakResidentBytes: UInt64
-        public let isSecurityAgent: Bool
-        public let securityAgentVendor: String?
+        /// True if this process matched a system-managed LaunchDaemon or SystemExtension
+        /// on the host (via `SystemServiceRegistry`). Always surfaced in reports.
+        public let isSystemManaged: Bool
+        /// Kind label for the system service, e.g. "LaunchDaemon" or "System extension".
+        public let systemServiceKind: String?
         /// Combined score used to rank the entry inside this bucket.
         public let score: Double
 
@@ -30,8 +33,8 @@ public struct ProcessBucket: Sendable, Hashable, Codable {
             diskReadBytes: UInt64,
             diskWriteBytes: UInt64,
             peakResidentBytes: UInt64,
-            isSecurityAgent: Bool,
-            securityAgentVendor: String?,
+            isSystemManaged: Bool,
+            systemServiceKind: String?,
             score: Double
         ) {
             self.pid = pid
@@ -42,8 +45,8 @@ public struct ProcessBucket: Sendable, Hashable, Codable {
             self.diskReadBytes = diskReadBytes
             self.diskWriteBytes = diskWriteBytes
             self.peakResidentBytes = peakResidentBytes
-            self.isSecurityAgent = isSecurityAgent
-            self.securityAgentVendor = securityAgentVendor
+            self.isSystemManaged = isSystemManaged
+            self.systemServiceKind = systemServiceKind
             self.score = score
         }
     }
@@ -61,9 +64,9 @@ public enum PeriodicTopProcesses {
     }
 
     /// Slice the samples into `configuration.bucketCount` equal time buckets
-    /// and emit the top-N processes per bucket. Any security-agent process
-    /// that ran in the bucket is **always** included (even if it falls
-    /// outside the top-N), tagged as such, so reports always surface them.
+    /// and emit the top-N processes per bucket. Any system-managed daemon or
+    /// extension (LaunchDaemon / SystemExtension) is always included even if
+    /// it falls outside the top-N, so reports always surface privileged services.
     public static func compute(
         samples: [SamplePoint],
         configuration: Configuration = .init()
@@ -90,10 +93,10 @@ public enum PeriodicTopProcesses {
                 .map(makeEntry)
                 .sorted { $0.score > $1.score }
 
-            // Take top-N, then ensure every security agent in the bucket is
-            // included (deduping by pid).
+            // Take top-N, then ensure every system-managed daemon/extension in
+            // the bucket is included (deduping by pid).
             var kept = Array(ranked.prefix(configuration.topN))
-            for entry in ranked where entry.isSecurityAgent && !kept.contains(where: { $0.pid == entry.pid }) {
+            for entry in ranked where entry.isSystemManaged && !kept.contains(where: { $0.pid == entry.pid }) {
                 kept.append(entry)
             }
 
@@ -146,15 +149,14 @@ public enum PeriodicTopProcesses {
     }
 
     private static func makeEntry(_ a: Aggregate) -> ProcessBucket.Entry {
-        let classification = SecurityAgents.classify(
-            name: a.name,
-            bundleID: a.bundleID,
-            executablePath: a.executablePath
-        )
-        // Score uses CPU as primary because security agents often spike CPU
-        // hard but consume relatively little energy attributable to them
-        // specifically. CPU + energy + IO combine to surface different
-        // problem shapes.
+        let svc = SystemServiceRegistry.match(executablePath: a.executablePath, bundleID: a.bundleID)
+        let kindLabel: String? = svc.map { s in
+            switch s.kind {
+            case .endpointSecurityExtension: return "EndpointSecurity ext."
+            case .systemExtension:           return "System ext."
+            case .launchDaemon:              return "LaunchDaemon"
+            }
+        }
         let coreCount = max(1, ProcessInfo.processInfo.activeProcessorCount)
         let score =
             a.cpuSeconds * Double(coreCount) +
@@ -170,8 +172,8 @@ public enum PeriodicTopProcesses {
             diskReadBytes: a.diskReadBytes,
             diskWriteBytes: a.diskWriteBytes,
             peakResidentBytes: a.peakResidentBytes,
-            isSecurityAgent: classification.isAgent,
-            securityAgentVendor: classification.vendor,
+            isSystemManaged: svc != nil,
+            systemServiceKind: kindLabel,
             score: score
         )
     }

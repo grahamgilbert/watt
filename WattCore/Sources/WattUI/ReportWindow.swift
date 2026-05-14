@@ -18,6 +18,7 @@ public struct ReportWindow: View {
     let onRegenerate: (PersistentIdentifier) -> Void
     let onAdHocReport: (TimeInterval) -> Void
     let onDeleteEpisode: (PersistentIdentifier) -> Void
+    let onDeleteReport: (PersistentIdentifier, Date) -> Void
     @State private var confirmDeleteEpisode: PersistentIdentifier?
 
     public init(
@@ -26,7 +27,8 @@ public struct ReportWindow: View {
         onRecordNote: @escaping (String) -> Void,
         onRegenerate: @escaping (PersistentIdentifier) -> Void,
         onAdHocReport: @escaping (TimeInterval) -> Void = { _ in },
-        onDeleteEpisode: @escaping (PersistentIdentifier) -> Void = { _ in }
+        onDeleteEpisode: @escaping (PersistentIdentifier) -> Void = { _ in },
+        onDeleteReport: @escaping (PersistentIdentifier, Date) -> Void = { _, _ in }
     ) {
         self.coordinator = coordinator
         self.progress = progress
@@ -34,6 +36,7 @@ public struct ReportWindow: View {
         self.onRegenerate = onRegenerate
         self.onAdHocReport = onAdHocReport
         self.onDeleteEpisode = onDeleteEpisode
+        self.onDeleteReport = onDeleteReport
     }
 
     public var body: some View {
@@ -53,7 +56,10 @@ public struct ReportWindow: View {
                         onRecordNote: onRecordNote,
                         onRegenerate: { onRegenerate(id) },
                         onAdHocReport: onAdHocReport,
-                        onDelete: { confirmDeleteEpisode = id }
+                        onDelete: { confirmDeleteEpisode = id },
+                        onDeleteReport: { reportID in
+                            onDeleteReport(reportID, episode.startedAt)
+                        }
                     )
                 } else {
                     VStack(spacing: 12) {
@@ -246,9 +252,17 @@ public struct EpisodeRow: View {
     }
 
     private var headline: String {
-        let drain = Int(episode.drainPercent.rounded())
         let mins = Int((episode.duration / 60).rounded())
-        return "−\(drain)% in \(mins) min"
+        switch episode.trigger {
+        case .acHighEnergy:
+            let watts = Int(episode.peakSystemEnergyWatts.rounded())
+            return "High energy \(watts > 0 ? "\(watts) W peak" : "") \(mins) min"
+        case .userTriggered:
+            return "Manual lookback \(mins) min"
+        case .batteryDrain:
+            let drain = Int(episode.drainPercent.rounded())
+            return "−\(drain)% in \(mins) min"
+        }
     }
 
     private var timestampLabel: String {
@@ -265,21 +279,25 @@ public struct ReportDetailView: View {
     let onRegenerate: () -> Void
     let onAdHocReport: (TimeInterval) -> Void
     let onDelete: () -> Void
+    let onDeleteReport: (PersistentIdentifier) -> Void
     @State private var noteText: String = ""
     @State private var showNoteSheet: Bool = false
+    @State private var confirmDeleteReport: PersistentIdentifier?
 
     public init(
         episode: DrainEpisode,
         onRecordNote: @escaping (String) -> Void,
         onRegenerate: @escaping () -> Void,
         onAdHocReport: @escaping (TimeInterval) -> Void = { _ in },
-        onDelete: @escaping () -> Void = {}
+        onDelete: @escaping () -> Void = {},
+        onDeleteReport: @escaping (PersistentIdentifier) -> Void = { _ in }
     ) {
         self.episode = episode
         self.onRecordNote = onRecordNote
         self.onRegenerate = onRegenerate
         self.onAdHocReport = onAdHocReport
         self.onDelete = onDelete
+        self.onDeleteReport = onDeleteReport
     }
 
     public var body: some View {
@@ -294,7 +312,7 @@ public struct ReportDetailView: View {
                     ContentUnavailableView(
                         "No report yet",
                         systemImage: "doc.text",
-                        description: Text("Click ‘Generate report’ to produce a Markdown summary for this episode.")
+                        description: Text("Click the ↻ button in the toolbar to generate a Markdown report for this episode.")
                     )
                     .frame(minHeight: 300)
                 }
@@ -302,6 +320,24 @@ public struct ReportDetailView: View {
             .padding(20)
         }
         .toolbar { toolbar }
+        .onAppear {
+            if latestReport == nil { onRegenerate() }
+        }
+        .confirmationDialog(
+            "Delete this report?",
+            isPresented: Binding(
+                get: { confirmDeleteReport != nil },
+                set: { if !$0 { confirmDeleteReport = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let id = confirmDeleteReport { onDeleteReport(id) }
+                confirmDeleteReport = nil
+            }
+        } message: {
+            Text("Removes this report from the database and deletes the on-disk Markdown mirror. The episode is kept. Cannot be undone.")
+        }
         .sheet(isPresented: $showNoteSheet) {
             AddNoteSheet(text: $noteText) {
                 if !noteText.isEmpty {
@@ -318,9 +354,22 @@ public struct ReportDetailView: View {
             Text("Episode \(episode.startedAt.formatted(date: .abbreviated, time: .shortened))")
                 .font(.title3)
                 .bold()
-            Text("Drain \(Int(episode.drainPercent.rounded()))% over \(Int((episode.duration / 60).rounded())) min — peak \(Int(episode.peakDrainRatePctPerHour.rounded())) %/h")
+            Text(episodeSubtitle)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private var episodeSubtitle: String {
+        let mins = Int((episode.duration / 60).rounded())
+        switch episode.trigger {
+        case .acHighEnergy:
+            let watts = Int(episode.peakSystemEnergyWatts.rounded())
+            return "High energy load over \(mins) min — peak \(watts) W"
+        case .userTriggered:
+            return "Manual lookback over \(mins) min"
+        case .batteryDrain:
+            return "Drain \(Int(episode.drainPercent.rounded()))% over \(mins) min — peak \(Int(episode.peakDrainRatePctPerHour.rounded())) %/h"
         }
     }
 
@@ -330,9 +379,12 @@ public struct ReportDetailView: View {
             Button {
                 onRegenerate()
             } label: {
-                Label("Regenerate", systemImage: "arrow.clockwise")
+                Label(latestReport == nil ? "Generate report" : "Regenerate", systemImage: "arrow.clockwise")
             }
-            .help("Re-run the analysis and AI verdict for this episode. The previous report is kept in history.")
+            .help(latestReport == nil
+                ? "Generate a Markdown report for this episode."
+                : "Re-run the analysis and AI verdict for this episode. The previous report is kept in history."
+            )
 
             Button {
                 showNoteSheet = true
@@ -375,9 +427,17 @@ public struct ReportDetailView: View {
             .help("Generate a one-off report covering recent activity, even if Watt didn’t auto-flag a drain episode.")
 
             Button(role: .destructive) {
+                if let id = latestReport?.persistentModelID { confirmDeleteReport = id }
+            } label: {
+                Label("Delete report", systemImage: "doc.badge.minus")
+            }
+            .disabled(latestReport == nil)
+            .help("Delete this report. The episode is kept and you can regenerate a new report at any time.")
+
+            Button(role: .destructive) {
                 onDelete()
             } label: {
-                Label("Delete", systemImage: "trash")
+                Label("Delete episode", systemImage: "trash")
             }
             .help("Delete this episode and every report attached to it. The on-disk Markdown mirrors are also removed.")
         }

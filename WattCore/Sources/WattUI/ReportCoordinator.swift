@@ -103,6 +103,16 @@ public actor ReportCoordinator {
         return episodeID
     }
 
+    /// Deletes a single Report and removes its on-disk Markdown mirror.
+    public func deleteReport(reportID: PersistentIdentifier, episodeStartedAt: Date) async {
+        do {
+            _ = try await writer.deleteReport(id: reportID)
+        } catch {
+            return
+        }
+        deleteMarkdownMirrors(forEpisodeStartedAt: episodeStartedAt)
+    }
+
     /// Deletes one episode plus every Report attached to it, and removes the
     /// on-disk Markdown mirrors for those reports.
     public func delete(episodeID: PersistentIdentifier) async {
@@ -142,6 +152,59 @@ public actor ReportCoordinator {
             let url = dir.appending(path: entry, directoryHint: .notDirectory)
             try? FileManager.default.removeItem(at: url)
         }
+    }
+
+    /// Auto-generate (or re-generate) a report for an existing episode. Called
+    /// automatically when an episode ends or hits the interim timeout.
+    @discardableResult
+    public func generateReport(for episodeID: PersistentIdentifier) async -> Bool {
+        let resolved: SamplingWriter.EpisodeBounds?
+        do {
+            resolved = try await writer.episodeBounds(id: episodeID)
+        } catch {
+            return false
+        }
+        guard let bounds = resolved else { return false }
+        // Use endedAt if available, otherwise snapshot up to now.
+        let end = bounds.endedAt
+        let interval = bounds.startedAt ... end
+        guard let samples = try? await writer.loadSamplePoints(in: interval),
+              let events = try? await writer.loadUserEventPoints(in: interval),
+              !samples.isEmpty
+        else { return false }
+
+        let analysis = ProcessCorrelator().correlate(samples: samples)
+        let episodeStub = DrainEpisode(
+            startedAt: bounds.startedAt,
+            endedAt: end,
+            startPercent: bounds.startPercent,
+            endPercent: bounds.endPercent,
+            peakDrainRatePctPerHour: bounds.peakDrainRatePctPerHour,
+            avgThermalState: bounds.avgThermalState,
+            trigger: bounds.trigger,
+            peakSystemEnergyWatts: bounds.peakSystemEnergyWatts
+        )
+        let output = await generator.generate(
+            episode: episodeStub,
+            samples: samples,
+            events: events,
+            analysis: analysis,
+            version: version
+        )
+        let report = Report(
+            generatedAt: Date(),
+            headline: output.verdict.headline,
+            markdown: output.markdown,
+            generatedByLLM: output.generatedByLLM,
+            modelTokenCount: output.modelTokenCount
+        )
+        try? await writer.writeReport(report, attachingTo: episodeID)
+        mirrorToDisk(
+            markdown: output.markdown,
+            generatedByLLM: output.generatedByLLM,
+            episodeStart: bounds.startedAt
+        )
+        return true
     }
 
     public func regenerate(for episodeID: PersistentIdentifier) async {

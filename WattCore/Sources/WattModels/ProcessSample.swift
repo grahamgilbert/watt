@@ -15,6 +15,9 @@ public final class ProcessSample {
     public var diskWriteBytesDelta: UInt64
     public var pageinsDelta: UInt64
     public var residentBytes: UInt64
+    /// Apple's composite energy impact score from powermetrics (same as Activity Monitor).
+    /// Zero if powermetrics data was unavailable for this sample.
+    public var energyImpact: Double = 0
     public var sample: Sample?
 
     public init(
@@ -30,6 +33,7 @@ public final class ProcessSample {
         diskWriteBytesDelta: UInt64,
         pageinsDelta: UInt64,
         residentBytes: UInt64,
+        energyImpact: Double = 0,
         sample: Sample? = nil
     ) {
         self.pid = pid
@@ -44,6 +48,7 @@ public final class ProcessSample {
         self.diskWriteBytesDelta = diskWriteBytesDelta
         self.pageinsDelta = pageinsDelta
         self.residentBytes = residentBytes
+        self.energyImpact = energyImpact
         self.sample = sample
     }
 }

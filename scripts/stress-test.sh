@@ -60,9 +60,17 @@ if [[ -z "$WATT_PID" ]]; then
 fi
 
 WORK_DIR="$(mktemp -d -t watt-stress)"
+
+# Put ourselves in a new process group so we can kill the entire group on exit,
+# catching `yes` children spawned by cpu_baker across subshell boundaries.
+set -m
+SCRIPT_PGID=$(ps -o pgid= -p $$ | tr -d ' ')
+
 cleanup() {
-    jobs -p | xargs -r kill 2>/dev/null || true
-    pkill -P $$ yes 2>/dev/null || true
+    # Kill every process in our process group except the shell itself
+    kill -9 -- "-${SCRIPT_PGID}" 2>/dev/null || true
+    # Belt-and-suspenders: kill any stray `yes` owned by this user
+    pkill -9 -x yes 2>/dev/null || true
     rm -rf "$WORK_DIR"
     echo
     echo "cleanup done"
@@ -100,10 +108,16 @@ reader() {
 
 cpu_baker() {
     local cores="$1"
+    local pids=()
     while [[ $(date +%s) -lt $END_SEC ]]; do
-        for _ in $(seq 1 "$cores"); do yes >/dev/null & done
+        pids=()
+        for _ in $(seq 1 "$cores"); do
+            yes >/dev/null &
+            pids+=($!)
+        done
         sleep 8
-        pkill -P $$ yes 2>/dev/null || true
+        kill "${pids[@]}" 2>/dev/null || true
+        wait "${pids[@]}" 2>/dev/null || true
         sleep 2
     done
 }

@@ -159,39 +159,35 @@ public enum MarkdownReportBuilder {
         return lines.joined(separator: "\n")
     }
 
-    // MARK: - Security agents
+    // MARK: - System daemons
 
     private static func securityAgentsSection(_ agents: [Suspect]) -> String {
-        var lines = ["## Security / system agents observed"]
+        var lines = ["## System daemons / LaunchDaemons observed"]
         lines.append("")
         lines.append(
-            "_These processes are registered as system-wide LaunchDaemons, system extensions,"
-            + " or known endpoint security tools. They run with privileged scheduling regardless"
-            + " of how much CPU they appear to use individually. Their presence is the load-bearing"
-            + " fact a security team needs to see, even when their per-process numbers look modest._"
+            "_These processes are registered as system-wide LaunchDaemons or system extensions"
+            + " on this host. They run as root and contribute to system load regardless of how"
+            + " much CPU they appear to use individually._"
         )
         lines.append("")
-        lines.append("| Process | Identity | CPU-s | Energy units | Read | Written |")
+        lines.append("| Process | Kind | CPU-s | Energy units | Read | Written |")
         lines.append("|---|---|---|---|---|---|")
         for agent in agents {
-            let classification = SecurityAgents.classify(name: agent.name, bundleID: agent.bundleID)
-            let identity: String
-            switch classification {
-            case .curated(let def):           identity = "\(def.displayName) (\(def.vendor))"
-            case .systemManaged(let svc):
-                let kindLabel: String
+            let svc = SystemServiceRegistry.match(executablePath: agent.executablePath, bundleID: agent.bundleID)
+            let kindLabel: String
+            if let svc {
                 switch svc.kind {
-                case .endpointSecurityExtension: kindLabel = "EndpointSecurity ext."
-                case .systemExtension:           kindLabel = "System ext."
-                case .launchDaemon:              kindLabel = "LaunchDaemon"
+                case .endpointSecurityExtension: kindLabel = "EndpointSecurity ext. `\(svc.label)`"
+                case .systemExtension:           kindLabel = "System ext. `\(svc.label)`"
+                case .launchDaemon:              kindLabel = "LaunchDaemon `\(svc.label)`"
                 }
-                identity = "\(kindLabel) `\(svc.label)`"
-            case .unknown:                   identity = "—"
+            } else {
+                kindLabel = "—"
             }
             let read = humanBytes(agent.totalDiskReadBytes)
             let written = humanBytes(agent.totalDiskWriteBytes)
             lines.append(
-                "| `\(agent.name)` (pid \(agent.pid)) | \(identity) | \(String(format: "%.0f", agent.totalCPUTime)) | \(scientific(agent.totalEnergyNanojoules)) | \(read) | \(written) |"
+                "| `\(agent.name)` (pid \(agent.pid)) | \(kindLabel) | \(String(format: "%.0f", agent.totalCPUTime)) | \(scientific(agent.totalEnergyNanojoules)) | \(read) | \(written) |"
             )
         }
         return lines.joined(separator: "\n")
@@ -204,8 +200,8 @@ public enum MarkdownReportBuilder {
         lines.append("")
         lines.append(
             "_Top processes by combined CPU + energy + IO score, computed in equal time slices"
-            + " across the episode. Security/system agents are flagged with an asterisk and"
-            + " always included in their slice's list, even if they didn't rank in the top-N._"
+            + " across the episode. System-managed daemons/extensions are flagged with an asterisk"
+            + " and always included in their slice's list, even if they didn't rank in the top-N._"
         )
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
@@ -217,8 +213,8 @@ public enum MarkdownReportBuilder {
             lines.append("| Process | CPU-s | Energy (J) | Read | Written | Notes |")
             lines.append("|---|---|---|---|---|---|")
             for entry in bucket.entries {
-                let mark = entry.isSecurityAgent ? "*" : ""
-                let notes = entry.isSecurityAgent ? (entry.securityAgentVendor ?? "agent") : ""
+                let mark = entry.isSystemManaged ? "*" : ""
+                let notes = entry.isSystemManaged ? (entry.systemServiceKind ?? "daemon") : ""
                 let read = humanBytes(entry.diskReadBytes)
                 let written = humanBytes(entry.diskWriteBytes)
                 lines.append(

@@ -38,7 +38,8 @@ public actor ReportGenerator {
             suspects: analysis.suspects,
             securityAgents: analysis.securityAgents,
             buckets: buckets,
-            patterns: analysis.patterns
+            patterns: analysis.patterns,
+            trigger: episode.trigger
         )
 
         let render = MarkdownReportBuilder.RenderInput(
@@ -76,7 +77,8 @@ public actor ReportGenerator {
         suspects: [Suspect],
         securityAgents: [Suspect],
         buckets: [ProcessBucket],
-        patterns: PatternFlags
+        patterns: PatternFlags,
+        trigger: DrainEpisodeTrigger = .batteryDrain
     ) async -> VerdictResult {
         #if canImport(FoundationModels)
         let availability = currentAvailability()
@@ -88,7 +90,8 @@ public actor ReportGenerator {
                     suspects: suspects,
                     securityAgents: securityAgents,
                     buckets: buckets,
-                    patterns: patterns
+                    patterns: patterns,
+                    trigger: trigger
                 )
                 let session = LanguageModelSession(
                     instructions: ReportInstructions.systemPrompt
@@ -113,7 +116,8 @@ public actor ReportGenerator {
             stats: stats,
             suspects: suspects,
             securityAgents: securityAgents,
-            patterns: patterns
+            patterns: patterns,
+            trigger: trigger
         )
         _ = buckets // intentionally unused in the templater; available to AI path only.
         return VerdictResult(verdict: verdict, usedLLM: false, tokenCount: nil)

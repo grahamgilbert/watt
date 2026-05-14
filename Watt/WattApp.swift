@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import UserNotifications
 import WattAI
 import WattAnalysis
 import WattHelperClient
@@ -16,6 +17,7 @@ struct WattApp: App {
     @State private var coordinator: SamplingCoordinator
     @State private var loginItem: LoginItemController
     @State private var progress: ReportProgress
+    @State private var prefs: WattPreferences
     @State private var samplingStarted = false
     private let reportCoordinator: ReportCoordinator
 
@@ -32,6 +34,7 @@ struct WattApp: App {
         self._coordinator = State(initialValue: coordinator)
         self._loginItem = State(initialValue: LoginItemController())
         self._progress = State(initialValue: ReportProgress())
+        self._prefs = State(initialValue: WattPreferences())
         self.reportCoordinator = ReportCoordinator(writer: writer)
     }
 
@@ -40,15 +43,17 @@ struct WattApp: App {
         progress.startGenerating(label: label)
         let coordinator = reportCoordinator
         let progress = progress
-        Task { @MainActor in
+        Task.detached {
             let id = await coordinator.generateAdHocReport(lookback: lookback)
-            if let id {
-                progress.finish(label: "Report ready", episodeID: id)
-            } else {
-                progress.fail(
-                    label: "Could not generate report",
-                    message: "No samples were recorded in that window."
-                )
+            await MainActor.run {
+                if let id {
+                    progress.finish(label: "Report ready", episodeID: id)
+                } else {
+                    progress.fail(
+                        label: "Could not generate report",
+                        message: "No samples were recorded in that window."
+                    )
+                }
             }
         }
     }
@@ -57,9 +62,11 @@ struct WattApp: App {
         progress.startGenerating(label: "Regenerating report…")
         let coordinator = reportCoordinator
         let progress = progress
-        Task { @MainActor in
+        Task.detached {
             await coordinator.regenerate(for: id)
-            progress.finish(label: "Report regenerated", episodeID: id)
+            await MainActor.run {
+                progress.finish(label: "Report regenerated", episodeID: id)
+            }
         }
     }
 
@@ -72,7 +79,6 @@ struct WattApp: App {
         MenuBarExtra {
             MenuBarView(
                 coordinator: coordinator,
-                loginItem: loginItem,
                 openReport: {
                     NSApplication.shared.activate(ignoringOtherApps: true)
                     openWindow(id: "report")
@@ -83,19 +89,18 @@ struct WattApp: App {
                     runAdHoc(lookback: lookback)
                 }
             )
-            .task {
-                if case .ready = appDelegate.helperGate.state, !samplingStarted {
-                    samplingStarted = true
-                    coordinator.start()
-                    loginItem.registerDefaultIfNeeded()
-                }
-            }
             .onChange(of: gateReadinessKey) { _, _ in
-                if case .ready = appDelegate.helperGate.state, !samplingStarted {
-                    samplingStarted = true
-                    coordinator.start()
-                    loginItem.registerDefaultIfNeeded()
-                }
+                startSamplingIfReady()
+            }
+            // Catch the case where the gate is already .ready before the
+            // MenuBarExtra view renders (helper was alive at launch and ping
+            // succeeded immediately — .task fires too late).
+            .task {
+                startSamplingIfReady()
+                // Also poll once after a short delay in case the state
+                // transition races the view appearing.
+                try? await Task.sleep(for: .seconds(1))
+                startSamplingIfReady()
             }
         } label: {
             Image(systemName: "bolt.batteryblock.fill")
@@ -117,6 +122,9 @@ struct WattApp: App {
                 },
                 onDeleteEpisode: { id in
                     runDelete(id: id)
+                },
+                onDeleteReport: { reportID, episodeStartedAt in
+                    Task { await reportCoordinator.deleteReport(reportID: reportID, episodeStartedAt: episodeStartedAt) }
                 }
             )
             .modelContainer(container)
@@ -131,6 +139,42 @@ struct WattApp: App {
                 }
             }
         }
+
+        Settings {
+            PreferencesView(prefs: prefs, loginItem: loginItem)
+        }
+    }
+
+    private func startSamplingIfReady() {
+        guard case .ready = appDelegate.helperGate.state, !samplingStarted else { return }
+        samplingStarted = true
+        coordinator.onEpisodeReady = { [self] id in
+            Task.detached {
+                let ok = await self.reportCoordinator.generateReport(for: id)
+                if ok {
+                    await self.sendEpisodeNotification(episodeID: id)
+                }
+            }
+        }
+        coordinator.start()
+        loginItem.registerDefaultIfNeeded()
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    private func sendEpisodeNotification(episodeID: PersistentIdentifier) async {
+        guard prefs.notifyOnEpisodeReady else { return }
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        guard settings.authorizationStatus == .authorized else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Watt — High energy episode detected"
+        content.body = "A report is ready. Click to open."
+        content.sound = .default
+        let request = UNNotificationRequest(
+            identifier: "watt.episode.\(episodeID.hashValue)",
+            content: content,
+            trigger: nil
+        )
+        try? await UNUserNotificationCenter.current().add(request)
     }
 
     private var isReady: Bool {

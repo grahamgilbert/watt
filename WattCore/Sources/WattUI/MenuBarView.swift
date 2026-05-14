@@ -4,18 +4,16 @@ import WattSampling
 
 public struct MenuBarView: View {
     let coordinator: SamplingCoordinator
-    let loginItem: LoginItemController
     let openReport: () -> Void
     let onAdHocReport: (TimeInterval) -> Void
+    @Environment(\.openSettings) private var openSettings
 
     public init(
         coordinator: SamplingCoordinator,
-        loginItem: LoginItemController,
         openReport: @escaping () -> Void,
         onAdHocReport: @escaping (TimeInterval) -> Void = { _ in }
     ) {
         self.coordinator = coordinator
-        self.loginItem = loginItem
         self.openReport = openReport
         self.onAdHocReport = onAdHocReport
     }
@@ -35,17 +33,6 @@ public struct MenuBarView: View {
             Divider()
             statRows
             Divider()
-            Toggle("Launch at login", isOn: launchAtLoginBinding)
-                .toggleStyle(.checkbox)
-                .font(.system(size: 12))
-            if loginItem.status == .requiresApproval {
-                Button("Approve in System Settings…") {
-                    loginItem.openSystemSettings()
-                }
-                .font(.caption)
-                .controlSize(.small)
-            }
-            Divider()
             Menu {
                 Button("Last 15 minutes")  { onAdHocReport(15 * 60) }
                 Button("Last 30 minutes")  { onAdHocReport(30 * 60) }
@@ -59,19 +46,20 @@ public struct MenuBarView: View {
             HStack {
                 Button("Open Reports", action: openReport)
                 Spacer()
+                Button {
+                    NSApplication.shared.activate(ignoringOtherApps: true)
+                    openSettings()
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+                .buttonStyle(.borderless)
+                .help("Preferences")
                 Button("Quit") { NSApplication.shared.terminate(nil) }
                     .keyboardShortcut("q")
             }
         }
         .padding(12)
         .frame(width: 300)
-    }
-
-    private var launchAtLoginBinding: Binding<Bool> {
-        Binding(
-            get: { loginItem.isEnabled },
-            set: { loginItem.setEnabled($0) }
-        )
     }
 
     @ViewBuilder

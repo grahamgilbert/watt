@@ -24,13 +24,18 @@ public actor BatterySampler {
             if (dict[kIOPSTypeKey] as? String) != kIOPSInternalBatteryType { continue }
             let current = (dict[kIOPSCurrentCapacityKey] as? Int) ?? 0
             let max = (dict[kIOPSMaxCapacityKey] as? Int) ?? 100
-            let isCharging = (dict[kIOPSIsChargingKey] as? Bool) ?? false
+            // kIOPSPowerSourceStateKey is "AC Power" whenever the cable is
+            // connected, even when the battery is full and kIOPSIsChargingKey
+            // is false (conservation / optimised charging). This is the right
+            // signal for the episode detector's AC vs battery path.
+            let powerState = dict[kIOPSPowerSourceStateKey] as? String
+            let isOnAC = (powerState == kIOPSACPowerValue)
             let amperage = (dict[kIOPSCurrentKey] as? Int) ?? 0     // mA, signed
             let voltage = (dict[kIOPSVoltageKey] as? Int) ?? 0       // mV
             let watts = abs(Double(amperage) * Double(voltage)) / 1_000_000.0
 
             bestPercent = (max > 0) ? Double(current) / Double(max) * 100 : .nan
-            bestCharging = isCharging
+            bestCharging = isOnAC
             bestWatts = watts
             break
         }

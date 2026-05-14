@@ -33,19 +33,13 @@ public final class WattAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func observeGate() {
-        Task { @MainActor in
-            // Poll the gate's state at 0.5s intervals while a non-ready state
-            // is showing. We could use Combine or an Observable bridge, but
-            // a tiny poll loop is the simplest correct thing for a one-shot
-            // launch flow.
-            var lastKey = -1
-            while !Task.isCancelled {
-                let key = self.gateKey(self.helperGate.state)
-                if key != lastKey {
-                    lastKey = key
-                    self.handleGateState()
-                }
-                try? await Task.sleep(for: .milliseconds(500))
+        withObservationTracking {
+            _ = self.helperGate.state
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.handleGateState()
+                self.observeGate()
             }
         }
     }
@@ -84,13 +78,5 @@ public final class WattAppDelegate: NSObject, NSApplicationDelegate {
         installWindow = window
     }
 
-    private func gateKey(_ state: HelperGate.State) -> Int {
-        switch state {
-        case .checking:        return 0
-        case .ready:           return 1
-        case .needsInstall:    return 2
-        case .installing:      return 3
-        case .installFailed:   return 4
-        }
-    }
+
 }

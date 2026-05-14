@@ -26,6 +26,9 @@ public actor ProcSampler {
     /// Cache of pid -> bundleID. NSRunningApplication does Launch Services
     /// roundtrips that we'd rather not pay every tick.
     private var bundleCache: [Int32: String?] = [:]
+    /// Cache of pid -> executable path. proc_pidpath is a syscall; paths
+    /// don't change for the lifetime of a process.
+    private var pathCache: [Int32: String?] = [:]
 
     public func read() -> ProcessReading {
         var processes: [ProcessPoint] = []
@@ -43,7 +46,7 @@ public actor ProcSampler {
 
         for pid in validPids where pid > 0 {
             let name = readName(for: pid)
-            let path = readPath(for: pid)
+            let path = cachedPath(for: pid)
             var info = rusage_info_v6()
             let rusageResult = watt_proc_pid_rusage_v6(pid, &info)
 
@@ -89,7 +92,7 @@ public actor ProcSampler {
             } else {
                 // proc_pid_rusage returns -1 (typically EPERM) for processes
                 // we don't own — including the root-owned daemons that
-                // matter most: CrowdStrike Falcon, Cyberhaven, JAMF, etc.
+                // matter most: CrowdStrike Falcon, Cyberhaven, management agents, etc.
                 // Record the existence of these so the agent matcher and
                 // the periodic top-process leaderboard can flag them, even
                 // though we have no per-tick CPU/energy deltas for them.
@@ -109,6 +112,9 @@ public actor ProcSampler {
             }
         }
         priors = freshPriors
+        // Evict path cache entries for pids that no longer exist.
+        let livePidSet = Set(validPids)
+        pathCache = pathCache.filter { livePidSet.contains($0.key) }
         return ProcessReading(processes: processes)
     }
 
@@ -118,6 +124,13 @@ public actor ProcSampler {
         buffer.initialize(repeating: 0, count: 256)
         let len = watt_proc_name(pid, buffer, 256)
         return len > 0 ? String(cString: buffer) : "pid \(pid)"
+    }
+
+    private func cachedPath(for pid: Int32) -> String? {
+        if let cached = pathCache[pid] { return cached }
+        let resolved = readPath(for: pid)
+        pathCache[pid] = resolved
+        return resolved
     }
 
     private nonisolated func readPath(for pid: Int32) -> String? {

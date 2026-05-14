@@ -44,13 +44,28 @@ public enum WattStore {
     }
 
     public static func makeContainer(inMemory: Bool = false) throws -> ModelContainer {
-        let configuration: ModelConfiguration
         if inMemory {
-            configuration = ModelConfiguration(isStoredInMemoryOnly: true)
-        } else {
-            let url = try defaultStoreURL()
-            configuration = ModelConfiguration(url: url)
+            let configuration = ModelConfiguration(isStoredInMemoryOnly: true)
+            return try ModelContainer(for: schema, configurations: [configuration])
         }
-        return try ModelContainer(for: schema, configurations: [configuration])
+        let url = try defaultStoreURL()
+        let configuration = ModelConfiguration(url: url)
+        do {
+            return try ModelContainer(for: schema, configurations: [configuration])
+        } catch {
+            // Lightweight migration failed (e.g. a new non-optional column was added
+            // without a default). The store is ephemeral telemetry — episodes and
+            // reports are small and regenerable. Delete and start fresh rather than
+            // blocking the app from launching.
+            print("WattStore: migration failed (\(error)). Deleting store and starting fresh.")
+            let fm = FileManager.default
+            for suffix in ["", "-wal", "-shm"] {
+                let path = url.path + suffix
+                if fm.fileExists(atPath: path) {
+                    try? fm.removeItem(atPath: path)
+                }
+            }
+            return try ModelContainer(for: schema, configurations: [ModelConfiguration(url: url)])
+        }
     }
 }

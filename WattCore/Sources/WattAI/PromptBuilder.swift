@@ -11,17 +11,19 @@ public enum PromptBuilder {
         suspects: [Suspect],
         securityAgents: [Suspect] = [],
         buckets: [ProcessBucket] = [],
-        patterns: PatternFlags
+        patterns: PatternFlags,
+        trigger: DrainEpisodeTrigger = .batteryDrain
     ) -> String {
         var lines: [String] = []
-        lines.append(contentsOf: episodeSection(stats: stats))
+        lines.append(contentsOf: episodeSection(stats: stats, trigger: trigger))
         lines.append("")
         lines.append(contentsOf: timelineSection(timeline))
         lines.append("")
         lines.append(contentsOf: suspectsSection(suspects))
-        if !securityAgents.isEmpty {
+        let agentLines = agentsSection(securityAgents)
+        if !agentLines.isEmpty {
             lines.append("")
-            lines.append(contentsOf: agentsSection(securityAgents))
+            lines.append(contentsOf: agentLines)
         }
         if !buckets.isEmpty {
             lines.append("")
@@ -32,16 +34,29 @@ public enum PromptBuilder {
         lines.append("")
         lines.append("# Output")
         lines.append(
-            "Return: headline, verdictParagraph, suspectRationales"
-            + " (one per suspect, in the same order as listed above), recommendedActions."
+            "Return: headline, verdictParagraph, suspectRationales, recommendedActions."
+            + " suspectRationales must have EXACTLY one entry per suspect, in the SAME ORDER as the Suspects section."
+            + " suspectRationales[0] describes suspect #1, etc."
+            + " Each rationale must: (1) state what the process actually DID (\"wrote X GB to /tmp\","
+            + " \"scanned writes from process Y\", \"compiled N files\") based on the numbers;"
+            + " (2) explain WHY it drove energy or drain (e.g. sustained CPU, large I/O amplification, memory pressure);"
+            + " (3) be 1–2 sentences. Never write percentages of totals — cite absolute numbers from the data."
         )
         return lines.joined(separator: "\n")
     }
 
     // MARK: - Sections
 
-    private static func episodeSection(stats: EpisodeStats) -> [String] {
+    private static func episodeSection(stats: EpisodeStats, trigger: DrainEpisodeTrigger) -> [String] {
         var lines = ["# Episode"]
+        switch trigger {
+        case .acHighEnergy:
+            lines.append("- type: AC_HIGH_ENERGY (machine is plugged in; drain_pct is meaningless here — focus on energy load)")
+        case .batteryDrain:
+            lines.append("- type: BATTERY_DRAIN")
+        case .userTriggered:
+            lines.append("- type: USER_REQUESTED_LOOKBACK")
+        }
         lines.append("- duration_min: \(Int(stats.durationMinutes.rounded()))")
         lines.append("- drain_pct: \(Int(stats.drainPercent.rounded()))")
         lines.append("- start_pct: \(Int(stats.startPercent.rounded()))")
@@ -82,15 +97,17 @@ public enum PromptBuilder {
     }
 
     private static func agentsSection(_ agents: [Suspect]) -> [String] {
-        var lines = ["# Security/system agents observed (always present, regardless of score)"]
+        let active = agents.filter {
+            $0.totalEnergyNanojoules > 0 || $0.totalCPUTime > 0
+                || $0.totalDiskReadBytes > 0 || $0.totalDiskWriteBytes > 0
+        }
+        guard !active.isEmpty else { return [] }
+        var lines = ["# System daemons / LaunchDaemons with measurable activity"]
         lines.append(
-            "These are LaunchDaemons, system extensions, or known endpoint security"
-            + " tools that ran during this episode. The user wants the report to call"
-            + " them out by name and explain how they likely contributed, even when"
-            + " their per-process numbers are modest — the point of this tool is to"
-            + " make corporate-mandated agents visible."
+            "These LaunchDaemons or system extensions had non-zero CPU, energy, or I/O during this episode."
+            + " Only agents listed here were active — do NOT mention agents that do not appear in this list."
         )
-        for agent in agents {
+        for agent in active {
             lines.append("- " + agentLine(agent))
         }
         return lines
@@ -104,7 +121,7 @@ public enum PromptBuilder {
             let e = formatter.string(from: bucket.bucketEnd)
             lines.append("[slice \(i + 1) of \(buckets.count): \(s)–\(e)]")
             for entry in bucket.entries.prefix(5) {
-                let mark = entry.isSecurityAgent ? "*agent" : ""
+                let mark = entry.isSystemManaged ? "*daemon" : ""
                 lines.append(
                     "  - \(entry.name) cpu_s=\(String(format: "%.1f", entry.cpuSeconds))"
                     + " energy_J=\(String(format: "%.1f", entry.energyJoules)) \(mark)"
@@ -120,7 +137,7 @@ public enum PromptBuilder {
             lines.append(
                 "- correlated_writer_reader: writer=\(pair.writer.name)(pid \(pair.writer.pid))"
                 + " wrote ~\(pair.writerBytes) bytes; reader=\(pair.reader.name)(pid \(pair.reader.pid))"
-                + " read ~\(pair.readerBytes) bytes — security agent scanning shape."
+                + " read ~\(pair.readerBytes) bytes — sustained writer/reader overlap."
             )
         }
         if patterns.thermalThrottle {
@@ -151,13 +168,8 @@ public enum PromptBuilder {
     }
 
     private static func agentLine(_ agent: Suspect) -> String {
-        let kind = SecurityAgents.classify(name: agent.name, bundleID: agent.bundleID)
-        let label: String
-        switch kind {
-        case .curated(let def):           label = "\(def.displayName) [\(def.vendor)]"
-        case .systemManaged(let svc):     label = "\(svc.kind.rawValue) `\(svc.label)`"
-        case .unknown:                    label = "unclassified"
-        }
+        let svc = SystemServiceRegistry.match(executablePath: agent.executablePath, bundleID: agent.bundleID)
+        let label = svc.map { "\($0.kind.rawValue) `\($0.label)`" } ?? "system-managed"
         let readGB = Double(agent.totalDiskReadBytes) / 1_073_741_824.0
         let writeGB = Double(agent.totalDiskWriteBytes) / 1_073_741_824.0
         let energyJ = Double(agent.totalEnergyNanojoules) / 1_000_000_000.0

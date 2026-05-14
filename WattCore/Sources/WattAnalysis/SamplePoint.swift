@@ -91,6 +91,8 @@ public struct ProcessPoint: Sendable, Hashable {
     public var diskWriteBytesDelta: UInt64
     public var pageinsDelta: UInt64
     public var residentBytes: UInt64
+    /// Apple's composite energy impact score from powermetrics (same as Activity Monitor).
+    public var energyImpact: Double
 
     public init(
         pid: Int32,
@@ -103,7 +105,8 @@ public struct ProcessPoint: Sendable, Hashable {
         diskReadBytesDelta: UInt64,
         diskWriteBytesDelta: UInt64,
         pageinsDelta: UInt64,
-        residentBytes: UInt64
+        residentBytes: UInt64,
+        energyImpact: Double = 0
     ) {
         self.pid = pid
         self.name = name
@@ -116,6 +119,7 @@ public struct ProcessPoint: Sendable, Hashable {
         self.diskWriteBytesDelta = diskWriteBytesDelta
         self.pageinsDelta = pageinsDelta
         self.residentBytes = residentBytes
+        self.energyImpact = energyImpact
     }
 
     public static func from(_ ps: ProcessSample) -> ProcessPoint {
@@ -130,7 +134,8 @@ public struct ProcessPoint: Sendable, Hashable {
             diskReadBytesDelta: ps.diskReadBytesDelta,
             diskWriteBytesDelta: ps.diskWriteBytesDelta,
             pageinsDelta: ps.pageinsDelta,
-            residentBytes: ps.residentBytes
+            residentBytes: ps.residentBytes,
+            energyImpact: ps.energyImpact
         )
     }
 }

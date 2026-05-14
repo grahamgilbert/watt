@@ -19,13 +19,12 @@ public struct EpisodeDetector: Sendable {
         /// the window required to trigger. 5 % over 10 minutes ≈ 30 %/h —
         /// far above idle on a typical M-series laptop, well below a runaway.
         public var batteryDrainThresholdPctOverWindow: Double
-        /// AC: minimum mean wattage across the window required to trigger.
-        /// Calibrated for IOReport-derived true system power (CPU + GPU +
-        /// ANE + DRAM). Apple Silicon idle is ~3-6 W; real workloads
-        /// (compilation, browsing, security-agent scanning) sit at 15-30 W;
-        /// sustained heavy load is 30+ W. 18 W cleanly separates idle from
-        /// "this is doing real work that an engineer would want to know
-        /// about."
+        /// AC: minimum mean value of `systemEnergyWatts` across the window
+        /// required to trigger. `systemEnergyWatts` comes from IOReport
+        /// (real watts from the kernel's energy counters). On Apple Silicon
+        /// idle is ~3-8 W; a sustained security agent workload sits at
+        /// 20-50 W. Threshold 18 W fires on real load without false-
+        /// triggering normal browsing/coding idle.
         public var acHighEnergyThresholdMeanWatts: Double
         /// End thresholds are computed as start / divisor.
         public var endThresholdDivisor: Double
@@ -35,6 +34,8 @@ public struct EpisodeDetector: Sendable {
         public var stickyCount: Int
         /// Window length in seconds. The detector requires at least this much
         /// real time of data before it will consider the start condition.
+        /// 10 minutes at 30 s/sample = 20 samples — enough to integrate a
+        /// periodic spiker while ignoring momentary bursts.
         public var windowSeconds: TimeInterval
         /// Maximum gap between samples that still counts as continuous; gaps
         /// larger than this end an open episode (sleep/wake) and reset the

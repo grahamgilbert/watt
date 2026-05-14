@@ -38,6 +38,7 @@ public actor SamplingWriter {
                 diskWriteBytesDelta: proc.diskWriteBytesDelta,
                 pageinsDelta: proc.pageinsDelta,
                 residentBytes: proc.residentBytes,
+                energyImpact: proc.energyImpact,
                 sample: sample
             )
             modelContext.insert(row)
@@ -54,6 +55,42 @@ public actor SamplingWriter {
             detail: event.detail
         )
         modelContext.insert(row)
+        try modelContext.save()
+    }
+
+    /// Closes episodes left open (endedAt == nil) when a prior session ended
+    /// unexpectedly. Finds the last Sample recorded after each episode started
+    /// and uses its timestamp as endedAt. Episodes with no matching samples
+    /// are deleted — they have no data to show.
+    public func closeOrphanedEpisodes() throws {
+        let predicate = #Predicate<DrainEpisode> { $0.endedAt == nil }
+        let orphans = try modelContext.fetch(FetchDescriptor<DrainEpisode>(predicate: predicate))
+        // Also clean up zero-duration episodes written by a previous recovery
+        // attempt (endedAt forced to equal startedAt). That state is impossible
+        // in production — the detector can't end an episode the instant it starts.
+        let allEpisodes = try modelContext.fetch(FetchDescriptor<DrainEpisode>())
+        for episode in allEpisodes where episode.endedAt == episode.startedAt {
+            modelContext.delete(episode)
+        }
+
+        guard !orphans.isEmpty else {
+            if modelContext.hasChanges { try modelContext.save() }
+            return
+        }
+
+        for episode in orphans {
+            let start = episode.startedAt
+            var sampleDescriptor = FetchDescriptor<Sample>(
+                predicate: #Predicate { $0.timestamp >= start },
+                sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+            )
+            sampleDescriptor.fetchLimit = 1
+            if let lastSample = try modelContext.fetch(sampleDescriptor).first {
+                episode.endedAt = lastSample.timestamp
+            } else {
+                modelContext.delete(episode)
+            }
+        }
         try modelContext.save()
     }
 
@@ -132,6 +169,16 @@ public actor SamplingWriter {
         let predicate = #Predicate<Sample> { $0.timestamp < cutoff }
         try modelContext.delete(model: Sample.self, where: predicate)
         try modelContext.save()
+    }
+
+    /// Delete a single Report by its persistent ID. Returns the report's
+    /// generatedAt date so the caller can clean up the on-disk Markdown mirror.
+    public func deleteReport(id: PersistentIdentifier) throws -> Date? {
+        guard let report = modelContext.model(for: id) as? Report else { return nil }
+        let generatedAt = report.generatedAt
+        modelContext.delete(report)
+        try modelContext.save()
+        return generatedAt
     }
 
     /// Delete an episode and every Report attached to it. Returns the
