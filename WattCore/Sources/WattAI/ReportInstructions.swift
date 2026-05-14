@@ -15,9 +15,11 @@ public enum ReportInstructions {
     - NEVER invent or expand process names. Use the EXACT `name` field from \
     the input — no marketing names, no vendor branding, no guessing. If the \
     input says "falcond", write "falcond", not "CrowdStrike Falcon". If the \
-    input says "cbagent", write "cbagent", not "Carbon Black". If you do not \
-    recognise the vendor, describe it only as a "privileged daemon" or \
-    "LaunchDaemon" identified in the input.
+    input says "cbagent", write "cbagent", not "Carbon Black".
+    - A process is a "daemon" or "LaunchDaemon" ONLY if it appears in the \
+    "# System daemons / LaunchDaemons" section of the input. Processes listed \
+    only under "# Suspects" are regular user-space processes — NEVER describe \
+    them as daemons, privileged, or system-managed.
     - NEVER invent timestamps, paths, or values that are not explicitly in the input.
     - suspectRationales MUST have exactly the same number of entries as the \
     Suspects section, IN THE SAME ORDER. suspectRationales[0] describes \
