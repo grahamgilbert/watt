@@ -61,52 +61,52 @@ public final class HelperGate {
             return
         }
 
-        // Ping first — the helper may already be alive even if SMAppService
-        // says the registration is stale (e.g. binary was just replaced in
-        // /Applications). Avoids showing the sheet on every dev build.
-        if let result = await pingForVersionResult(attempts: 2, delayBetween: .seconds(1)) {
-            logger.info("evaluate: ping succeeded early, skipping SMAppService check")
+        // Fast ping (3 s timeout) — catches the normal case where the helper
+        // is alive and just needs a moment to respond.
+        if let result = await pingForVersionResult(attempts: 2, timeout: 3, delayBetween: .seconds(1)) {
+            logger.info("evaluate: fast ping succeeded")
             state = result
             return
         }
 
-        // Ping missed on first two fast tries. Check what SMAppService thinks.
+        // Ping missed. Check SMAppService status to decide next step.
         let status = await client.currentStatus()
-        logger.info("evaluate: early ping failed, SMAppService.status=\(String(describing: status))")
+        logger.info("evaluate: fast ping failed, SMAppService.status=\(String(describing: status))")
 
         switch status {
         case .requiresApproval:
-            // User must approve in Login Items — no amount of retrying helps.
             state = .needsInstall(reason: .requiresApproval)
             return
         case .notRegistered, .notFound:
-            // Never been installed. Skip further pings; show install UI.
             state = .needsInstall(reason: .notInstalled)
             return
         case .enabled:
-            // Helper is registered. launchd should start it on first Mach IPC.
-            // Retry pings a bit longer — the daemon may be cold-starting.
             break
         @unknown default:
             state = .needsInstall(reason: .notInstalled)
             return
         }
 
-        // Status is .enabled — retry the ping with more patience.
-        if let result = await pingForVersionResult() {
+        // Status is .enabled but helper isn't answering. Two sub-cases:
+        // (a) Normal cold start — helper is starting up, give it a few more seconds.
+        // (b) Stale BTM entry — helper "runs" from old DerivedData path, will never answer.
+        // We can't distinguish them until we try. Give it one more patient ping,
+        // then immediately do unregister+register to fix the stale BTM case.
+        if let result = await pingForVersionResult(attempts: 2, timeout: 5, delayBetween: .seconds(2)) {
             state = result
             return
         }
 
-        // Still failing. The most likely cause: the app bundle was replaced
-        // (rm -rf + ditto) and launchd's BTM entry points at the old path.
-        // Silently re-register to pick up the new binary, then give it 5 s
-        // to start before the final retry.
-        logger.info("evaluate: extended ping failed, attempting silent forceRegister")
+        // Still failing — assume stale BTM entry. Full unregister → register
+        // cycle flushes the old path and writes a fresh absolute-path entry
+        // anchored to /Applications/Watt.app.
+        logger.info("evaluate: helper unresponsive, cycling registration to clear stale BTM entry")
+        await client.unregister()
+        try? await Task.sleep(for: .seconds(2))
         try? await client.forceRegister()
-        try? await Task.sleep(for: .seconds(5))
+        try? await Task.sleep(for: .seconds(4))
 
-        if let result = await pingForVersionResult(attempts: 4, delayBetween: .seconds(2)) {
+        if let result = await pingForVersionResult(attempts: 3, timeout: 5, delayBetween: .seconds(2)) {
             state = result
             return
         }
@@ -154,10 +154,10 @@ public final class HelperGate {
     /// Pings the helper up to `attempts` times. Returns the resolved `State`
     /// (.ready or .needsInstall(.staleProtocol)) on success, nil if all pings
     /// time out or fail with an XPC error.
-    private func pingForVersionResult(attempts: Int = 4, delayBetween: Duration = .seconds(2)) async -> State? {
+    private func pingForVersionResult(attempts: Int = 4, timeout: TimeInterval = 10, delayBetween: Duration = .seconds(2)) async -> State? {
         for attempt in 1...attempts {
             do {
-                let response = try await client.hello(timeout: 10)
+                let response = try await client.hello(timeout: timeout)
                 logger.info("ping attempt \(attempt) succeeded proto=\(response.protocolVersion)")
                 if response.protocolVersion == expectedProtocolVersion {
                     return .ready
