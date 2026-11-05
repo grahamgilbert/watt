@@ -7,7 +7,8 @@ cd "$(dirname "$0")/.."
 version=$(cat VERSION)
 app="$PWD/dist/Watt.app"
 zsh scripts/build-app.sh release
-lipo "$app/Contents/MacOS/Watt" -verify_arch arm64 x86_64
+architectures=$(lipo -archs "$app/Contents/MacOS/Watt")
+[[ " $architectures " == *" arm64 "* && " $architectures " == *" x86_64 "* ]] || { echo "Release must contain both architectures" >&2; exit 1; }
 codesign --force --options runtime --timestamp --keychain "$WATT_KEYCHAIN" --sign "$WATT_SIGNING_IDENTITY" "$app"
 codesign --verify --deep --strict "$app"
 codesign -dv --verbose=4 "$app" 2> "$RUNNER_TEMP/watt-signature.txt"

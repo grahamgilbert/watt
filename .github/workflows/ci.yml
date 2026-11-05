@@ -26,4 +26,5 @@ jobs:
       - name: Verify bundle and architectures
         run: |
           codesign --verify --deep --strict dist/Watt.app
-          lipo dist/Watt.app/Contents/MacOS/Watt -verify_arch arm64 x86_64
+          architectures=$(lipo -archs dist/Watt.app/Contents/MacOS/Watt)
+          [[ " $architectures " == *" arm64 "* && " $architectures " == *" x86_64 "* ]]
