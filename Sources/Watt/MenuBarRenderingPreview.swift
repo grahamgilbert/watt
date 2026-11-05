@@ -49,8 +49,18 @@ import SwiftUI
     let processes=[("Compiler",18.4),("Indexer",8.7),("WindowServer",4.3),("Files",3.1),("Messages",0.2)].enumerated().map {index,item in
         ProcessRow(pid:Int32(100+index),parent:1,start:1,name:item.0,cpu:item.1,memory:100_000_000,growth:0,read:0,written:0)
     }
-    let frames=(0..<20).map {index in
-        Frame(time:Date().addingTimeInterval(Double(index-19)*5),cpu:[7.0,8,6,7,9,8,7][index%7],memory:21_000_000_000,compressed:1_800_000_000,swap:0,download:[20.0,22,18,70,160,130,35,40,85,61.3][index%10]*1024,upload:[8.0,12,9,24,48,35,18,20,29,63.8][index%10]*1024,processes:processes,denied:0,power:PowerReading(volts:12,amps: -[0.4,0.45,0.5,0.65,0.7,0.6][index%6],externalPower:false,sampledAt:Date()))
+    let cpuValues:[Double]=[7,8,6,7,9,8,7]
+    let downloads:[Double]=[20,22,18,70,160,130,35,40,85,61.3]
+    let uploads:[Double]=[8,12,9,24,48,35,18,20,29,63.8]
+    let currents:[Double]=[0.4,0.45,0.5,0.65,0.7,0.6]
+    let frames:[Frame]=(0..<20).map {index -> Frame in
+        let time=Date().addingTimeInterval(Double(index-19)*5)
+        let power=PowerReading(volts:12,amps: -currents[index%currents.count],externalPower:false,sampledAt:time)
+        return Frame(time:time,cpu:cpuValues[index%cpuValues.count],memory:21_000_000_000,
+                     compressed:1_800_000_000,swap:0,
+                     download:downloads[index%downloads.count]*1024,
+                     upload:uploads[index%uploads.count]*1024,
+                     processes:processes,denied:0,power:power)
     }
     let model=Monitor(previewFrames:frames)
     NSAppearance(named:.darkAqua)!.performAsCurrentDrawingAppearance {
