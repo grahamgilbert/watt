@@ -23,7 +23,7 @@ jobs:
   release:
     needs: verify
     if: github.ref == 'refs/heads/main'
-    runs-on: macos-15
+    runs-on: macos-15-intel
     timeout-minutes: 60
     permissions:
       contents: write
