@@ -1,0 +1,168 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="1450" viewBox="0 0 2048 1450" role="img" aria-labelledby="title desc">
+<title id="title">Watt — detailed historical process explorer</title>
+<desc id="desc">Illustrative expert macOS interface showing linked CPU, memory and disk tracks, a sampled process parent tree with precise resource columns, and selected compiler identity and memory growth details. CPU uses core percentages. Memory footprint is separate from system pressure. Recording coverage is explicitly incomplete and compressed memory is unavailable.</desc>
+<defs>
+ <linearGradient id="bg" x2="0" y2="1"><stop stop-color="#202630"/><stop offset="1" stop-color="#151a21"/></linearGradient>
+ <linearGradient id="cpuFill" x2="0" y2="1"><stop stop-color="#99e7c6" stop-opacity=".18"/><stop offset="1" stop-color="#99e7c6" stop-opacity="0"/></linearGradient>
+ <linearGradient id="memFill" x2="0" y2="1"><stop stop-color="#c5b6eb" stop-opacity=".16"/><stop offset="1" stop-color="#c5b6eb" stop-opacity="0"/></linearGradient>
+ <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%"><feDropShadow dx="0" dy="15" stdDeviation="18" flood-color="#000" flood-opacity=".32"/></filter>
+ <style>
+ text { font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif; fill:#e8edf3; font-variant-numeric:tabular-nums; }
+ .mono {font-family:'SFMono-Regular',Menlo,monospace;font-size:13px;}
+ .muted {fill:#9daabd;}
+ .small {font-size:13px;fill:#9daabd;}
+ .body {font-size:15px;}
+ .label {font-size:14px;font-weight:500;}
+ .eyebrow {font-size:12px;letter-spacing:1.8px;fill:#9daabd;font-weight:600;}
+ .rule {stroke:#4d5a6c;stroke-opacity:.4;}
+ .mint {fill:#99e7c6;}.lilac {fill:#c5b6eb;}.blue {fill:#a0c6fa;}.amber {fill:#e6bb7d;}
+ .cell {font-family:'SFMono-Regular',Menlo,monospace;font-size:13px;text-anchor:end;}
+ </style>
+</defs>
+<rect width="2048" height="1450" fill="#11161c"/>
+<text x="48" y="49" font-size="21" font-weight="600" letter-spacing="2">WATT</text>
+<text x="146" y="49" font-size="17" fill="#aebaca">/ PROCESS EXPLORER</text>
+<text x="2000" y="48" class="small" text-anchor="end">Design study · all measurements and identities illustrative</text>
+
+<rect x="44" y="80" width="1960" height="1305" rx="19" fill="url(#bg)" stroke="#455164" filter="url(#shadow)"/>
+<path d="M63 80H1985Q2004 80 2004 99V131H44V99Q44 80 63 80Z" fill="#2b3441"/>
+<circle cx="68" cy="106" r="5.5" fill="#ce7772"/><circle cx="88" cy="106" r="5.5" fill="#c3a56a"/><circle cx="108" cy="106" r="5.5" fill="#78ac90"/>
+<text x="146" y="111" class="label">This Mac</text>
+<text x="1024" y="111" font-size="14" font-weight="500" text-anchor="middle">History · Process explorer</text>
+<rect x="1794" y="92" width="94" height="27" rx="6" fill="#3b4657"/><text x="1841" y="110" font-size="12" text-anchor="middle">Export range</text>
+<rect x="1902" y="92" width="78" height="27" rx="6" fill="#3b4657"/><text x="1941" y="110" font-size="12" text-anchor="middle">Configure</text>
+
+<!-- Time controls -->
+<text x="68" y="169" font-size="23" font-weight="500">Today</text>
+<text x="149" y="169" font-size="16" fill="#c7d0dc">14:31:30–14:33:00</text>
+<rect x="360" y="145" width="68" height="32" rx="7" fill="#3b4859"/><text x="394" y="166" font-size="13" text-anchor="middle">90 sec</text>
+<text x="448" y="166" class="small">Selected interval</text>
+<rect x="635" y="145" width="185" height="32" rx="7" fill="#151c25" stroke="#4c596c"/><text x="727" y="166" font-size="13" text-anchor="middle">Cursor 14:32:18</text>
+<text x="843" y="166" class="small">1 sec system · 5 sec process samples</text>
+<circle cx="1463" cy="161" r="3" fill="#e6bb7d"/>
+<text x="1476" y="166" font-size="13" fill="#e6bb7d">586 observed · 12 queries denied · partial coverage</text>
+<rect x="1870" y="145" width="110" height="32" rx="7" fill="#151c25" stroke="#4c596c"/><text x="1925" y="166" font-size="13" text-anchor="middle">Return to live</text>
+<line x1="68" y1="194" x2="1980" y2="194" class="rule"/>
+
+<!-- Linked system tracks -->
+<rect x="814" y="212" width="485" height="162" fill="#899eac" opacity=".055"/>
+<g stroke="#4d5a6c" stroke-opacity=".25"><path d="M330 212V374M653 212V374M976 212V374M1299 212V374M1622 212V374M1945 212V374"/></g>
+<text x="68" y="235" class="label mint">CPU</text><text x="147" y="235" class="body">94%</text><text x="201" y="235" class="small">machine</text>
+<text x="68" y="258" class="small">10 logical CPUs · 0–100% capacity</text>
+<path d="M330 251L383 249L437 251L491 248L545 250L599 246L653 245L707 241L760 244L814 233L868 222L922 226L976 216L1030 220L1073 214L1138 220L1192 215L1246 224L1299 232L1353 240L1407 244L1461 246L1515 244L1569 250L1622 247L1676 250L1730 248L1784 252L1838 248L1892 251L1945 249L1945 264H330Z" fill="url(#cpuFill)"/>
+<path d="M330 251L383 249L437 251L491 248L545 250L599 246L653 245L707 241L760 244L814 233L868 222L922 226L976 216L1030 220L1073 214L1138 220L1192 215L1246 224L1299 232L1353 240L1407 244L1461 246L1515 244L1569 250L1622 247L1676 250L1730 248L1784 252L1838 248L1892 251L1945 249" fill="none" stroke="#99e7c6" stroke-width="1.8"/>
+<line x1="68" y1="272" x2="1980" y2="272" class="rule"/>
+<text x="68" y="297" class="label lilac">Memory</text><text x="147" y="297" class="body">21.4 / 32 GB</text>
+<text x="68" y="320" class="small">System pressure: normal · 0–32 GB</text>
+<path d="M330 317L437 317L545 315L653 314L760 314L814 309L868 306L922 303L976 299L1030 297L1073 295L1138 295L1192 296L1246 298L1299 300L1407 303L1515 308L1622 308L1730 310L1838 308L1945 309" fill="none" stroke="#c5b6eb" stroke-width="1.8"/>
+<line x1="68" y1="333" x2="1980" y2="333" class="rule"/>
+<text x="68" y="358" class="label blue">Disk I/O</text><text x="147" y="358" class="body">152 / 48 MB/s</text>
+<text x="68" y="381" class="small">Read / write · 0–250 MB/s</text>
+<path d="M330 378L437 377L545 379L653 377L760 378L814 359L868 367L922 347L976 357L1030 354L1073 349L1138 359L1192 349L1246 366L1299 372L1407 377L1515 378L1622 376L1730 379L1838 375L1945 378" fill="none" stroke="#a0c6fa" stroke-width="1.8"/>
+<path d="M330 381L545 381L760 379L814 374L868 376L922 370L976 374L1073 369L1192 373L1299 378L1515 380L1730 380L1945 381" fill="none" stroke="#a0c6fa" stroke-width="1.4" stroke-dasharray="4 3" opacity=".5"/>
+<path d="M1073 209V387" fill="none" stroke="#e6edf7" stroke-opacity=".7"/>
+<circle cx="1073" cy="214" r="3" fill="#99e7c6"/><circle cx="1073" cy="295" r="3" fill="#c5b6eb"/><circle cx="1073" cy="349" r="3" fill="#a0c6fa"/>
+<text x="330" y="411" class="small">14:30</text><text x="653" y="411" class="small">14:31</text><text x="976" y="411" class="small">14:32</text><text x="1299" y="411" class="small">14:33</text><text x="1622" y="411" class="small">14:34</text><text x="1945" y="411" class="small" text-anchor="end">14:35</text>
+
+<!-- Process toolbar -->
+<rect x="68" y="439" width="317" height="33" rx="7" fill="#141c25" stroke="#455267"/>
+<rect x="125" y="442" width="111" height="27" rx="5" fill="#414e60"/>
+<text x="97" y="460" font-size="13" fill="#aab5c5" text-anchor="middle">Flat</text><text x="181" y="460" font-size="13" text-anchor="middle">Parent tree</text><text x="264" y="460" font-size="13" fill="#aab5c5" text-anchor="middle">App</text><text x="339" y="460" font-size="13" fill="#aab5c5" text-anchor="middle">Coalition</text>
+<rect x="401" y="439" width="184" height="33" rx="7" fill="#141c25" stroke="#455267"/>
+<text x="427" y="460" font-size="13" fill="#aab5c5">User</text><text x="480" y="460" font-size="13" fill="#aab5c5">System</text><rect x="535" y="442" width="46" height="27" rx="5" fill="#414e60"/><text x="558" y="460" font-size="13" text-anchor="middle">Both</text>
+<rect x="602" y="439" width="219" height="33" rx="7" fill="#141c25" stroke="#455267"/><text x="618" y="460" font-size="13">All recorded (586)</text><path d="M801 452l4 4 4-4" fill="none" stroke="#aab5c5"/>
+<rect x="841" y="439" width="349" height="33" rx="7" fill="#141c25" stroke="#455267"/><circle cx="859" cy="453" r="4.5" fill="none" stroke="#8b9aae" stroke-width="1.3"/><path d="M862 457l4 4" stroke="#8b9aae"/><text x="879" y="460" font-size="13" fill="#8191a6">Filter process, PID, executable, signer</text>
+<text x="1212" y="460" font-size="13" fill="#bed1eb">Columns…</text><text x="1301" y="460" font-size="13" fill="#bed1eb">Compare…</text>
+<line x1="1410" y1="432" x2="1410" y2="1347" class="rule"/>
+
+<!-- Table semantics -->
+<text x="68" y="496" class="small">CPU: 100% = one logical CPU · averages and peaks over selected 90 sec · footprint at cursor · Δ and memory peak over selected interval</text>
+<rect x="68" y="513" width="1318" height="42" rx="5" fill="#2c3543"/>
+<text x="84" y="539" font-size="12" font-weight="600">Process / observed parent</text>
+<text x="427" y="539" font-size="12" text-anchor="end">PID</text>
+<text x="506" y="539" font-size="12" text-anchor="end">CPU avg ↕</text><text x="585" y="539" font-size="12" text-anchor="end">Peak</text>
+<text x="686" y="539" font-size="12" text-anchor="end">Footprint</text><text x="785" y="539" font-size="12" text-anchor="end">Mem peak</text><text x="884" y="539" font-size="12" text-anchor="end">Δ memory</text>
+<text x="983" y="539" font-size="12" text-anchor="end">Compressed</text><text x="1082" y="539" font-size="12" text-anchor="end">Read</text><text x="1181" y="539" font-size="12" text-anchor="end">Write</text><text x="1365" y="539" font-size="12" text-anchor="end">CPU time Δ</text>
+
+<!-- Table row backgrounds, tree rails -->
+<g fill="#aebdd1" opacity=".025"><rect x="68" y="599" width="1318" height="44"/><rect x="68" y="687" width="1318" height="44"/><rect x="68" y="775" width="1318" height="44"/><rect x="68" y="863" width="1318" height="44"/><rect x="68" y="951" width="1318" height="44"/></g>
+<rect x="68" y="643" width="1318" height="44" fill="#3c536e" opacity=".75"/><rect x="68" y="643" width="3" height="44" fill="#aacdf9"/>
+<g class="rule"><path d="M68 599H1386M68 643H1386M68 687H1386M68 731H1386M68 775H1386M68 819H1386M68 863H1386M68 907H1386M68 951H1386M68 995H1386M68 1039H1386"/></g>
+<path d="M101 586V754M101 621H118M101 665H118M101 709H118M101 753H118" stroke="#62758c" opacity=".55" fill="none"/>
+
+<!-- ninja parent; each row is the process itself -->
+<path d="M82 574l4 4 4-4" fill="none" stroke="#b9c5d4" stroke-width="1.4"/><text x="105" y="582" class="label">ninja</text>
+<text x="427" y="582" class="cell muted">14080</text><text x="506" y="582" class="cell">7.8%</text><text x="585" y="582" class="cell">22.0%</text><text x="686" y="582" class="cell">31.6 MiB</text><text x="785" y="582" class="cell">42.3 MiB</text><text x="884" y="582" class="cell">+4.2 MiB</text><text x="983" y="582" class="cell muted">—</text><text x="1082" y="582" class="cell">2.1 MiB</text><text x="1181" y="582" class="cell">82 KiB</text><text x="1365" y="582" class="cell">7.0 s</text>
+<text x="128" y="626" class="label">clang</text><text x="196" y="626" font-size="12" fill="#92a5bc">arm64 · compile</text>
+<text x="427" y="626" class="cell muted">14092</text><text x="506" y="626" class="cell">201.3%</text><text x="585" y="626" class="cell">320.0%</text><text x="686" y="626" class="cell">1.06 GiB</text><text x="785" y="626" class="cell">1.33 GiB</text><text x="884" y="626" class="cell lilac">+172 MiB</text><text x="983" y="626" class="cell muted">—</text><text x="1082" y="626" class="cell">940 MiB</text><text x="1181" y="626" class="cell">480 MiB</text><text x="1365" y="626" class="cell">3m 01s</text>
+<text x="128" y="670" class="label">clang</text><text x="196" y="670" font-size="12" fill="#c5d5e8">arm64 · compile</text>
+<text x="427" y="670" class="cell">14094</text><text x="506" y="670" class="cell mint">382.0%</text><text x="585" y="670" class="cell">538.0%</text><text x="686" y="670" class="cell">1.82 GiB</text><text x="785" y="670" class="cell">2.11 GiB</text><text x="884" y="670" class="cell lilac">+640 MiB</text><text x="983" y="670" class="cell muted">—</text><text x="1082" y="670" class="cell">1.80 GiB</text><text x="1181" y="670" class="cell">592 MiB</text><text x="1365" y="670" class="cell">5m 44s</text>
+<text x="128" y="714" class="label">ld</text><text x="196" y="714" font-size="12" fill="#92a5bc">arm64 · link</text>
+<text x="427" y="714" class="cell muted">14112</text><text x="506" y="714" class="cell">68.4%</text><text x="585" y="714" class="cell">101.0%</text><text x="686" y="714" class="cell">482 MiB</text><text x="785" y="714" class="cell">622 MiB</text><text x="884" y="714" class="cell lilac">+88 MiB</text><text x="983" y="714" class="cell muted">—</text><text x="1082" y="714" class="cell">2.32 GiB</text><text x="1181" y="714" class="cell">118 MiB</text><text x="1365" y="714" class="cell">1m 02s</text>
+<text x="128" y="758" class="label">dsymutil</text>
+<text x="427" y="758" class="cell muted">14118</text><text x="506" y="758" class="cell">34.0%</text><text x="585" y="758" class="cell">87.0%</text><text x="686" y="758" class="cell">218 MiB</text><text x="785" y="758" class="cell">341 MiB</text><text x="884" y="758" class="cell">−28 MiB</text><text x="983" y="758" class="cell muted">—</text><text x="1082" y="758" class="cell">731 MiB</text><text x="1181" y="758" class="cell">94 MiB</text><text x="1365" y="758" class="cell">30.6 s</text>
+<path d="M82 794l4 4-4 4" fill="none" stroke="#b9c5d4" stroke-width="1.4"/><text x="105" y="802" class="label">Security agent</text><text x="252" y="802" font-size="11" fill="#8294ac">example</text>
+<text x="427" y="802" class="cell muted">502</text><text x="506" y="802" class="cell">148.4%</text><text x="585" y="802" class="cell">260.0%</text><text x="686" y="802" class="cell">692 MiB</text><text x="785" y="802" class="cell">810 MiB</text><text x="884" y="802" class="cell">+64 MiB</text><text x="983" y="802" class="cell muted">—</text><text x="1082" y="802" class="cell">3.41 GiB</text><text x="1181" y="802" class="cell">22 MiB</text><text x="1365" y="802" class="cell">2m 14s</text>
+<text x="105" y="846" class="label">mds_stores</text>
+<text x="427" y="846" class="cell muted">233</text><text x="506" y="846" class="cell">44.6%</text><text x="585" y="846" class="cell">96.2%</text><text x="686" y="846" class="cell">264 MiB</text><text x="785" y="846" class="cell">289 MiB</text><text x="884" y="846" class="cell">+19 MiB</text><text x="983" y="846" class="cell muted">—</text><text x="1082" y="846" class="cell">1.12 GiB</text><text x="1181" y="846" class="cell">84 MiB</text><text x="1365" y="846" class="cell">40.1 s</text>
+<path d="M82 882l4 4-4 4" fill="none" stroke="#b9c5d4" stroke-width="1.4"/><text x="105" y="890" class="label">WindowServer</text>
+<text x="427" y="890" class="cell muted">179</text><text x="506" y="890" class="cell">19.2%</text><text x="585" y="890" class="cell">39.0%</text><text x="686" y="890" class="cell">418 MiB</text><text x="785" y="890" class="cell">430 MiB</text><text x="884" y="890" class="cell">+2.1 MiB</text><text x="983" y="890" class="cell muted">—</text><text x="1082" y="890" class="cell">0 B</text><text x="1181" y="890" class="cell">0 B</text><text x="1365" y="890" class="cell">17.3 s</text>
+<path d="M82 926l4 4-4 4" fill="none" stroke="#b9c5d4" stroke-width="1.4"/><text x="105" y="934" class="label">Editor</text>
+<text x="427" y="934" class="cell muted">5821</text><text x="506" y="934" class="cell">13.7%</text><text x="585" y="934" class="cell">58.2%</text><text x="686" y="934" class="cell">1.24 GiB</text><text x="785" y="934" class="cell">1.28 GiB</text><text x="884" y="934" class="cell">+31 MiB</text><text x="983" y="934" class="cell muted">—</text><text x="1082" y="934" class="cell">112 MiB</text><text x="1181" y="934" class="cell">8.2 MiB</text><text x="1365" y="934" class="cell">12.3 s</text>
+<text x="105" y="978" class="label">Watt recorder</text>
+<text x="427" y="978" class="cell muted">7840</text><text x="506" y="978" class="cell">0.8%</text><text x="585" y="978" class="cell">1.9%</text><text x="686" y="978" class="cell">58 MiB</text><text x="785" y="978" class="cell">61 MiB</text><text x="884" y="978" class="cell">+1.4 MiB</text><text x="983" y="978" class="cell muted">—</text><text x="1082" y="978" class="cell">18 KiB</text><text x="1181" y="978" class="cell">1.4 MiB</text><text x="1365" y="978" class="cell">0.72 s</text>
+<text x="84" y="1022" font-size="13" fill="#aab8cb">+ 576 more recorded processes</text><text x="1365" y="1022" font-size="12" fill="#aab8cb" text-anchor="end">Expand all · collapse all</text>
+
+<text x="68" y="1066" class="small">Rows show each process itself; parents do not include descendants. Click a column to sort siblings. Missing parents remain explicit.</text>
+<text x="68" y="1088" class="small">Read, write and CPU time are interval deltas. Memory footprints are not additive; shared accounting can overlap.</text>
+
+<!-- Selected process mini timelines -->
+<line x1="68" y1="1110" x2="1386" y2="1110" class="rule"/>
+<text x="68" y="1142" font-size="17" font-weight="500">clang · PID 14094</text><text x="305" y="1142" class="small">Selected process across 90 sec</text>
+<text x="68" y="1174" class="label mint">CPU</text><text x="68" y="1198" class="small">382% avg · 538% peak</text>
+<path d="M330 1203L385 1199L440 1201L495 1193L550 1187L605 1191L660 1176L715 1184L770 1168L825 1175L880 1163L935 1174L990 1180L1045 1173L1100 1186L1155 1180L1210 1194L1265 1196L1320 1203L1380 1204" fill="none" stroke="#99e7c6" stroke-width="1.8"/>
+<line x1="68" y1="1220" x2="1386" y2="1220" class="rule"/>
+<text x="68" y="1252" class="label lilac">Physical footprint</text><text x="68" y="1276" class="small">1.82 GiB at cursor</text>
+<path d="M330 1285L385 1284L440 1281L495 1278L550 1273L605 1268L660 1260L715 1257L770 1247L825 1241L880 1235L935 1238L990 1243L1045 1244L1100 1248L1155 1254L1210 1263L1265 1269L1320 1274L1380 1277L1380 1293H330Z" fill="url(#memFill)"/>
+<path d="M330 1285L385 1284L440 1281L495 1278L550 1273L605 1268L660 1260L715 1257L770 1247L825 1241L880 1235L935 1238L990 1243L1045 1244L1100 1248L1155 1254L1210 1263L1265 1269L1320 1274L1380 1277" fill="none" stroke="#c5b6eb" stroke-width="1.8"/>
+<path d="M890 1160V1294" stroke="#dee6f1" opacity=".55"/><circle cx="890" cy="1236" r="3" fill="#c5b6eb"/>
+<text x="330" y="1320" class="small">14:31:30</text><text x="855" y="1320" class="small">14:32:18</text><text x="1380" y="1320" class="small" text-anchor="end">14:33:00</text>
+
+<!-- Inspector -->
+<text x="1434" y="461" class="eyebrow">PROCESS INSPECTOR</text>
+<text x="1434" y="500" font-size="27" font-weight="500">clang</text><text x="1519" y="500" class="mono muted">PID 14094</text>
+<text x="1434" y="526" class="small">arm64 · user process · still observed at cursor</text>
+<line x1="1434" y1="548" x2="1980" y2="548" class="rule"/>
+<text x="1434" y="578" class="eyebrow">MEMORY BEHAVIOR</text>
+<text x="1434" y="609" class="body">Physical footprint</text><text x="1980" y="609" class="body lilac" text-anchor="end">1.82 GiB</text>
+<text x="1434" y="640" class="body">Peak in interval</text><text x="1980" y="640" class="body" text-anchor="end">2.11 GiB at 14:32:20</text>
+<text x="1434" y="671" class="body">End − start footprint</text><text x="1980" y="671" class="body lilac" text-anchor="end">+640 MiB</text>
+<text x="1434" y="702" class="body">Compressed memory</text><text x="1980" y="702" class="body muted" text-anchor="end">— unavailable in this capture</text>
+<text x="1434" y="737" class="small">Growth is observed; a leak is not established.</text>
+<text x="1434" y="759" class="small">System memory pressure stayed normal during the selection.</text>
+<line x1="1434" y1="783" x2="1980" y2="783" class="rule"/>
+<text x="1434" y="813" class="eyebrow">IDENTITY / PARENTAGE</text>
+<text x="1434" y="844" class="small">Executable</text><text x="1980" y="844" class="mono" text-anchor="end">…/Toolchains/…/usr/bin/clang</text>
+<text x="1434" y="876" class="small">Started</text><text x="1980" y="876" class="mono" text-anchor="end">Today 14:31:18.402</text>
+<text x="1434" y="908" class="small">Process key</text><text x="1980" y="908" class="mono" text-anchor="end">boot-7f2a / 14094 / start-…</text>
+<text x="1434" y="940" class="small">Observed parent</text><text x="1980" y="940" class="mono" text-anchor="end">ninja · PID 14080</text>
+<text x="1434" y="972" class="small">User</text><text x="1980" y="972" class="mono" text-anchor="end">local user · UID 501</text>
+<text x="1434" y="1004" class="small">Signature</text><text x="1980" y="1004" class="mono" text-anchor="end">Apple toolchain · validated at capture</text>
+<text x="1434" y="1036" class="small">Arguments / working directory</text><text x="1980" y="1036" class="mono muted" text-anchor="end">not recorded</text>
+<line x1="1434" y1="1060" x2="1980" y2="1060" class="rule"/>
+<text x="1434" y="1090" class="eyebrow">CAPTURE QUALITY</text>
+<text x="1434" y="1121" class="body">18 / 18 scheduled samples available</text>
+<text x="1434" y="1147" class="small">5 sec process sampling · interval deltas use actual elapsed time</text>
+<text x="1434" y="1181" class="small">Parent links are observations, not a complete execution trace.</text>
+<text x="1434" y="1205" class="small">Processes that began and exited between polls may be missing.</text>
+<text x="1434" y="1229" class="small">12 process queries denied; resource coverage is incomplete.</text>
+<rect x="1434" y="1261" width="546" height="64" rx="9" fill="#493e30" fill-opacity=".45" stroke="#9b7c52" stroke-opacity=".3"/>
+<text x="1449" y="1286" font-size="13" fill="#e4cead">Security activity overlapped this build.</text>
+<text x="1449" y="1308" font-size="13" fill="#c9bcaa">A scan delay is not established. View supporting samples →</text>
+
+<line x1="44" y1="1347" x2="2004" y2="1347" class="rule"/>
+<circle cx="70" cy="1366" r="3" fill="#e6bb7d"/><text x="82" y="1371" font-size="12" fill="#c2ccd9">Sampled history · not every short-lived process is captured · “—” means unavailable, not zero</text>
+<text x="1980" y="1371" font-size="12" fill="#aab8ca" text-anchor="end">No synthetic memory impact score · system pressure remains a separate metric</text>
+<text x="48" y="1423" class="small">An instrument for investigation: density, explicit units, observable process relationships, and evidence you can inspect.</text>
+<text x="2000" y="1423" class="small" text-anchor="end">Illustrative design · no installed security vendor implied</text>
+</svg>
