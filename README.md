@@ -55,3 +55,5 @@ Outside-click handling uses transient popovers, mouse monitors, focus changes an
 Visual refinement: the popup footer uses one full-width Explorer action, a plain icon/text utility row and a grouped interval control. Unsupported sensor status remains in appearance settings rather than a permanent footer warning. Simple meters are the default menu bar graphs. Digits retain native light/dark contrast, with graph strokes below their baselines. [Renderer preview](docs/design/watt-menu-clean.png) uses illustrative values from the actual drawing code at 1× and 4×; reproduce with `swift run Watt --render-menu-preview /tmp/watt-menu-clean.png`.
 
 The [popup refinement preview](docs/design/watt-popup-refined.png) is rendered from the actual SwiftUI content with explicit illustrative data, without opening the recording database. Reproduce with `swift run Watt --render-popup-preview /tmp/watt-popup.png`.
+
+CI and signed/notarized releases are documented in [RELEASING.md](docs/RELEASING.md).

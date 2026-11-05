@@ -1,0 +1,77 @@
+name: Release (Manual)
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Release channel
+        required: true
+        type: choice
+        options: [prerelease, stable]
+        default: prerelease
+      publish:
+        description: Publish a GitHub release after validation
+        type: boolean
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+  release:
+    needs: verify
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Check release version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(cat VERSION)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          if git rev-parse --verify "refs/tags/v$version" >/dev/null 2>&1; then
+            echo 'Release tag already exists; bump VERSION first.' >&2
+            exit 1
+          fi
+          echo "RELEASE_TAG=v$version" >> "$GITHUB_ENV"
+      - name: Configure signing and notarization
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+        run: bash scripts/ci-setup-signing.sh
+      - name: Build, sign, and notarize
+        env:
+          UNIVERSAL: '1'
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: bash scripts/ci-build-release.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Watt-${{ env.RELEASE_TAG }}
+          path: |
+            dist/*.dmg
+            dist/*.sha256
+          if-no-files-found: error
+      - name: Publish release
+        if: inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          flags=()
+          if [[ "$CHANNEL" == prerelease ]]; then flags+=(--prerelease); fi
+          gh release create "$RELEASE_TAG" dist/*.dmg dist/*.sha256 --target "$GITHUB_SHA" --title "Watt ${RELEASE_TAG#v}" --generate-notes "${flags[@]}"
+      - name: Remove signing credentials
+        if: always()
+        run: bash scripts/ci-cleanup-signing.sh

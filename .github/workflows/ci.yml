@@ -1,0 +1,29 @@
+name: Build and test
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: swift --version
+      - name: Unit tests
+        run: swift test --disable-sandbox
+      - name: Universal release build
+        env:
+          UNIVERSAL: '1'
+        run: zsh scripts/build-app.sh release
+      - name: Verify bundle and architectures
+        run: |
+          codesign --verify --deep --strict dist/Watt.app
+          lipo dist/Watt.app/Contents/MacOS/Watt -verify_arch arm64 x86_64
