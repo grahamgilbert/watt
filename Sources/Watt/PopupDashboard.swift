@@ -19,7 +19,7 @@ struct PopupDashboard:View {
                     heading("MEMORY",color:.purple)
                     reading(String(format:"%.0f",Double(frame.memory)/physical*100),unit:"%")
                     PopupSpark(frames:frames,color:.purple,ceiling:100,value:{Double($0.memory)/physical*100}).frame(height:56)
-                    Text("\(bytes(frame.memory)) of \(bytes(UInt64(physical)))").font(.system(size:10)).foregroundStyle(.secondary)
+                    Text("\(bytes(frame.memory)) used · cache excluded").font(.system(size:10)).foregroundStyle(.secondary)
                 }
             }
             HStack(spacing:12) {

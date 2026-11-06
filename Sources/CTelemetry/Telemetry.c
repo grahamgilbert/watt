@@ -7,6 +7,10 @@
 #include <ifaddrs.h>
 #include <stdlib.h>
 #include <string.h>
+// Anonymous pages exclude file-backed cache. Purgeable anonymous pages are reclaimable.
+uint64_t watt_memory_used_pages(uint64_t anonymous, uint64_t purgeable, uint64_t wired, uint64_t compressed) {
+    return (anonymous > purgeable ? anonymous - purgeable : 0) + wired + compressed;
+}
 int watt_system(WattSystem *o) {
     memset(o,0,sizeof(*o));
     static mach_port_t host=0; if(!host) host=mach_host_self();
@@ -16,7 +20,7 @@ int watt_system(WattSystem *o) {
     vm_statistics64_data_t vm; n=HOST_VM_INFO64_COUNT;
     if(host_statistics64(host,HOST_VM_INFO64,(host_info64_t)&vm,&n)==KERN_SUCCESS) {
         vm_size_t page; host_page_size(host,&page);
-        o->memory=((uint64_t)vm.active_count+vm.inactive_count+vm.wire_count+vm.compressor_page_count-(vm.purgeable_count<vm.active_count?vm.purgeable_count:0))*page;
+        o->memory=watt_memory_used_pages(vm.internal_page_count,vm.purgeable_count,vm.wire_count,vm.compressor_page_count)*page;
         o->compressed=(uint64_t)vm.compressor_page_count*page;
     }
     struct xsw_usage swap; size_t size=sizeof(swap); if(!sysctlbyname("vm.swapusage",&swap,&size,0,0)) o->swap=swap.xsu_used;

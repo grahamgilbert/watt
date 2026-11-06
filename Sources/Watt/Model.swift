@@ -16,6 +16,7 @@ struct Frame: Codable, Identifiable {
     var segment: String? = nil
     var elapsed: Double? = nil
     var cadence: Double? = nil
+    var memoryAccounting: String? = nil
     var id: Date { time }
 }
 func delta(_ value: UInt64, _ previous: UInt64) -> UInt64? { value >= previous ? value - previous : nil }
@@ -56,7 +57,7 @@ final class Collector {
         previous=system; processes=next; last=now
         guard baseline else { return nil }
         return Frame(time:Date(),cpu:cpu,memory:system.memory,compressed:system.compressed,swap:system.swap,
-                     download:rx,upload:tx,processes:rows,denied:count < 0 ? -1 : Int(denied),power:PowerReading.read(),elapsed:elapsed)
+                     download:rx,upload:tx,processes:rows,denied:count < 0 ? -1 : Int(denied),power:PowerReading.read(),elapsed:elapsed,memoryAccounting:"app-wired-compressed")
     }
     func reset() { previous=nil; processes=[:]; last=nil }
 }

@@ -96,7 +96,7 @@ struct ProcessExplorerView:View {
             if let snapshot=monitor.current {
                 HStack(spacing:22) {
                     Text("CPU \(String(format:"%.1f",snapshot.cpu))%").foregroundStyle(.mint)
-                    Text("Memory \(bytes(snapshot.memory))").foregroundStyle(.purple)
+                    Text("Memory \(bytes(snapshot.memory))\(snapshot.memoryAccounting == nil ? " · legacy estimate" : "")").foregroundStyle(.purple)
                     Text("↓ \(bytes(UInt64(snapshot.download)))/s  ↑ \(bytes(UInt64(snapshot.upload)))/s").foregroundStyle(.blue)
                     Text(snapshot.power?.formatted ?? "Power unavailable").foregroundStyle(.orange)
                     Spacer()
