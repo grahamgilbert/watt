@@ -12,9 +12,9 @@ struct ProcessSummary:Identifiable {
     var peakCPU:Double?
     var cpuSeconds=0.0
     var cpuCoveredSeconds=0.0
-    var peakMemory:UInt64=0
-    var firstMemory:UInt64=0
-    var lastMemory:UInt64=0
+    var peakMemory:UInt64?
+    var firstMemory:UInt64?
+    var lastMemory:UInt64?
     var readBytes:UInt64=0
     var writtenBytes:UInt64=0
     var ioSamples=0
@@ -24,7 +24,11 @@ struct ProcessSummary:Identifiable {
     var averagePower:Double? {energyCoveredSeconds>0 ? energyJoules/energyCoveredSeconds : nil}
     var id:String {process.id}
     var averageCPU:Double? {cpuCoveredSeconds>0 ? cpuSeconds/cpuCoveredSeconds*100 : nil}
-    var memoryChange:Int64? {samples>1 ? Int64(lastMemory)-Int64(firstMemory) : nil}
+    var memoryChange:Int64? {
+        guard samples>1,let firstMemory,let lastMemory,
+              firstMemory<=UInt64(Int64.max),lastMemory<=UInt64(Int64.max) else {return nil}
+        return Int64(lastMemory)-Int64(firstMemory)
+    }
 }
 enum HistoryAnalysis {
     static func snapshot(at time:Date,frames:[Frame],gaps:[RecordingGap]) -> Frame? {
@@ -45,7 +49,10 @@ enum HistoryAnalysis {
             for p in f.processes {
                 var summary=result[p.id] ?? ProcessSummary(process:p,firstSeen:f.time,lastSeen:f.time,firstMemory:p.memory)
                 summary.process=p;summary.lastSeen=f.time;summary.samples+=1
-                summary.peakMemory=max(summary.peakMemory,p.memory);summary.lastMemory=p.memory
+                if let memory=p.memory {summary.peakMemory=max(summary.peakMemory ?? memory,memory)}
+                // Preserve unavailable endpoints. Substituting the nearest measured
+                // footprint would turn a restricted reading into invented growth.
+                summary.lastMemory=p.memory
                 if let cpu=p.cpu {summary.peakCPU=max(summary.peakCPU ?? cpu,cpu)}
                 if let power=p.cpuPowerWatts(elapsed:f.elapsed) {summary.peakPower=max(summary.peakPower ?? power,power)}
                 if validInterval {

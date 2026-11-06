@@ -12,6 +12,7 @@ import WattEnergyProtocol
     @Published private(set) var lastSampleDate:Date?
     @Published private(set) var lastError:String?
     @Published private(set) var isSignedBuild=false
+    @Published private(set) var processMetricsError:String?
     private let service=SMAppService.daemon(plistName:EnergyServiceConfiguration.plistName)
     // The running executable's identity cannot change. Rechecking it on every activation
     // needlessly walks the code signature on the main thread.
@@ -28,6 +29,8 @@ import WattEnergyProtocol
         isSignedBuild=team != nil
         let value=service.status
         isInstalled=value == .enabled;needsApproval=value == .requiresApproval
+        if !isSignedBuild || !isInstalled {PrivilegedProcessClient.shared.stop()}
+        processMetricsError=PrivilegedProcessClient.shared.lastError
         guard isSignedBuild else {status="Apple Energy Impact requires a Developer ID-signed Watt release.";return}
         switch value {
         case .enabled:if !isRunning {status="Apple Energy Impact collector is installed; collection is stopped."}
@@ -48,6 +51,13 @@ import WattEnergyProtocol
         } catch {lastError=error.localizedDescription;refreshStatus();status=error.localizedDescription}
     }
     func requestApproval() {SMAppService.openSystemSettingsLoginItems()}
+    func reinstall() {
+        refreshStatus()
+        guard isSignedBuild else {return}
+        stop()
+        do {try service.unregister();try service.register();lastError=nil;refreshStatus();if isInstalled {start(interval:requestedInterval)}}
+        catch {lastError=error.localizedDescription;refreshStatus();status=error.localizedDescription}
+    }
     func unregister() {
         stop()
         do {try service.unregister();lastError=nil;refreshStatus()}
@@ -58,6 +68,7 @@ import WattEnergyProtocol
         requestedInterval=min(60,max(2,interval))
         refreshStatus()
         guard isInstalled,isSignedBuild,let team else {return}
+        PrivilegedProcessClient.shared.start(team:team)
         timer?.invalidate()
         if connection == nil {
             let value=NSXPCConnection(machServiceName:EnergyServiceConfiguration.serviceName,options:.privileged)
@@ -75,6 +86,7 @@ import WattEnergyProtocol
         capture()
     }
     func stop() {
+        PrivilegedProcessClient.shared.stop()
         timer?.invalidate();timer=nil;captureTimeout?.invalidate();captureTimeout=nil
         isRunning=false;activeCapture=nil;connectionID=UUID()
         let old=connection;connection=nil;old?.invalidate()

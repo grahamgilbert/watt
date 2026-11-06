@@ -115,6 +115,10 @@ private struct EnergyCollectorControls:View {
         VStack(alignment:.leading,spacing:10) {
             Text(collector.status).font(.caption).foregroundStyle(collector.lastError == nil ? Color.secondary : .orange)
                 .fixedSize(horizontal:false,vertical:true).accessibilityIdentifier("energy.collector.status")
+            if let error=collector.processMetricsError {
+                Text(error).font(.caption).foregroundStyle(.orange).fixedSize(horizontal:false,vertical:true)
+                Button("Reinstall collector…") {collector.reinstall()}.controlSize(.small).disabled(!collector.isSignedBuild)
+            }
             HStack {
                 if collector.needsApproval {
                     Button("Approve in System Settings…") {collector.requestApproval()}.buttonStyle(.borderedProminent)

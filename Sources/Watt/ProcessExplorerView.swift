@@ -77,7 +77,7 @@ struct ProcessExplorerView:View {
             switch controls.sort {
             case "Energy Impact":return (impactScores[$0.id] ?? -1)>(impactScores[$1.id] ?? -1)
             case "CPU energy":return ($0.cpuPowerWatts(elapsed:monitor.current?.elapsed) ?? -1)>($1.cpuPowerWatts(elapsed:monitor.current?.elapsed) ?? -1)
-            case "Memory":return $0.memory>$1.memory
+            case "Memory":return ($0.memory.map(Double.init) ?? -1)>($1.memory.map(Double.init) ?? -1)
             case "Disk read":return ($0.read ?? 0)>($1.read ?? 0)
             case "Disk write":return ($0.written ?? 0)>($1.written ?? 0)
             default:return ($0.cpu ?? -1)>($1.cpu ?? -1)
@@ -96,7 +96,7 @@ struct ProcessExplorerView:View {
             switch controls.sort {
             case "Energy Impact":return (controls.impactSummaries[$0.id]?.average ?? -1)>(controls.impactSummaries[$1.id]?.average ?? -1)
             case "CPU energy":return ($0.energyCoveredSeconds>0 ? $0.energyJoules : -1)>($1.energyCoveredSeconds>0 ? $1.energyJoules : -1)
-            case "Memory":return $0.peakMemory>$1.peakMemory
+            case "Memory":return ($0.peakMemory.map(Double.init) ?? -1)>($1.peakMemory.map(Double.init) ?? -1)
             case "Disk read":return $0.readBytes>$1.readBytes
             case "Disk write":return $0.writtenBytes>$1.writtenBytes
             default:return $0.cpuSeconds>$1.cpuSeconds
@@ -208,7 +208,7 @@ struct ProcessExplorerView:View {
     }
     private var processToolbar:some View {
         HStack(spacing:10) {
-            HStack(spacing:6) {Image(systemName:"magnifyingglass").foregroundStyle(.secondary);TextField(applicationsMode ? "Application or PID" : "Process or PID",text:$controls.search).textFieldStyle(.plain)}
+            HStack(spacing:6) {Image(systemName:"magnifyingglass").foregroundStyle(.secondary);TextField(applicationsMode ? "Application or PID" : "Process or PID",text:$controls.search).textFieldStyle(.plain).accessibilityLabel(applicationsMode ? "Search applications or PIDs" : "Search processes or PIDs").accessibilityIdentifier("explorer.processSearch")}
                 .font(.system(size:11)).padding(.horizontal,8).frame(width:160,height:26).background(.primary.opacity(0.045),in:RoundedRectangle(cornerRadius:5))
             Picker("Scope",selection:$controls.scope) {Text("Processes").tag("Processes");Text("Applications").tag("Applications")}.pickerStyle(.segmented).labelsHidden().frame(width:180)
             Picker("View",selection:$controls.mode) {Text("At cursor").tag("At cursor");Text("Interval summary").tag("Interval summary")}.pickerStyle(.segmented).labelsHidden().frame(width:175).disabled(monitor.historyRange==nil)
@@ -235,7 +235,10 @@ struct ProcessExplorerView:View {
                 Text(mixedCPUAccounting && summaryMode ? "· mixed CPU accounting: corrected records only" : "· legacy process CPU scaling").foregroundStyle(.orange)
             }
             Spacer()
-            if let frame=monitor.current {Text("\(frame.processes.count) observed · \(max(0,frame.denied)) queries unavailable").foregroundStyle(.secondary)}
+            if let frame=monitor.current {
+                let restricted=frame.processes.reduce(0) {$0+($1.memory == nil ? 1 : 0)}
+                Text(restricted>0 ? "\(frame.processes.count) listed · \(restricted) restricted" : "\(frame.processes.count) observed · \(max(0,frame.denied)) queries unavailable").foregroundStyle(.secondary)
+            }
             else if let reason=monitor.selectionGap()?.reason {Text(reason).foregroundStyle(.orange)}
             else {Text("No nearby recorded sample at cursor").foregroundStyle(.orange)}
             if let bounds=monitor.historyBounds {Text("Retained \(bounds.start.formatted(date:.abbreviated,time:.shortened))").foregroundStyle(.tertiary)}
@@ -275,13 +278,13 @@ struct ProcessExplorerView:View {
     }
     private var snapshotTable:some View {
         Table(processes,selection:$controls.selection) {
-            TableColumn("Process / observed parent") {p in Text(p.name).padding(.leading,CGFloat(depth(p))*12)}.width(min:150,ideal:205)
+            TableColumn("Process / observed parent") {p in processLabel(p).padding(.leading,CGFloat(depth(p))*12)}.width(min:150,ideal:205)
             TableColumn("PID") {Text(String($0.pid))}.width(52)
             TableColumn("Parent") {Text(String($0.parent))}.width(52)
             TableColumn("CPU %") {Text($0.cpu.map {String(format:"%.1f",$0)} ?? "—").foregroundStyle(ExplorerPalette.cpu).help(monitor.current?.processCPUAccounting == nil ? "Legacy recorded CPU values use the prototype scaling and can be underreported." : "CPU 100% equals one core. Native Mach CPU time has been converted to nanoseconds.")}.width(70)
             TableColumn("Energy Impact") {Text(explorerImpactText(snapshot.impactScores[$0.id])).foregroundStyle(ExplorerPalette.energy).help("Apple powermetrics unitless energy_impact_per_s score. Not watts; unavailable or stale captures show a dash.")}.width(105)
             TableColumn("CPU W est.") {Text(explorerPower($0.cpuPowerWatts(elapsed:monitor.current?.elapsed)))}.width(85)
-            TableColumn("Footprint") {Text(bytes($0.memory))}.width(100)
+            TableColumn("Footprint") {Text($0.memory.map(bytes) ?? "—")}.width(100)
             TableColumn("Δ memory") {p in Text(explorerDelta(p.growth))}.width(95)
             TableColumn("Read/s") {Text(diskRate($0.read,elapsed:monitor.current?.elapsed))}.width(100)
             TableColumn("Write/s") {Text(diskRate($0.written,elapsed:monitor.current?.elapsed))}.width(100)
@@ -289,17 +292,26 @@ struct ProcessExplorerView:View {
     }
     private var summaryTable:some View {
         Table(summaries,selection:$controls.selection) {
-            TableColumn("Process") {Text($0.process.name)}.width(min:150,ideal:205)
+            TableColumn("Process") {processLabel($0.process)}.width(min:150,ideal:205)
             TableColumn("PID") {Text(String($0.process.pid))}.width(52)
             TableColumn("CPU avg / peak") {p in Text("\(explorerPercent(p.averageCPU)) / \(explorerPercent(p.peakCPU))").foregroundStyle(ExplorerPalette.cpu)}.width(125)
             TableColumn("Impact avg / peak") {p in Text(controls.impactSummaries[p.id].map {"\(explorerImpactText($0.average)) / \(explorerImpactText($0.peak))"} ?? "—").foregroundStyle(ExplorerPalette.energy)}.width(120)
             TableColumn("CPU W avg / peak") {p in Text("\(explorerPower(p.averagePower)) / \(explorerPower(p.peakPower))")}.width(125)
             TableColumn("CPU energy · J") {p in Text(p.energyCoveredSeconds>0 ? String(format:"%.3f",p.energyJoules) : "—")}.width(95)
             TableColumn("CPU time") {Text($0.cpuCoveredSeconds>0 ? String(format:"%.2f s",$0.cpuSeconds) : "—")}.width(80)
-            TableColumn("Footprint last / peak") {p in Text("\(bytes(p.lastMemory)) / \(bytes(p.peakMemory))")}.width(165)
+            TableColumn("Footprint last / peak") {p in Text("\(p.lastMemory.map(bytes) ?? "—") / \(p.peakMemory.map(bytes) ?? "—")")}.width(165)
             TableColumn("Δ memory") {p in Text(explorerDelta(p.memoryChange))}.width(95)
             TableColumn("Read / write total") {p in Text(p.ioSamples>0 ? "\(bytes(p.readBytes)) / \(bytes(p.writtenBytes))" : "—")}.width(170)
         }.tableStyle(.inset(alternatesRowBackgrounds:false)).font(.system(size:11)).monospacedDigit().controlSize(.small).frame(maxHeight:.infinity)
+    }
+    @ViewBuilder private func processLabel(_ process:ProcessRow)->some View {
+        if process.memory == nil {
+            HStack(spacing:5) {
+                Image(systemName:"lock.fill").font(.system(size:9)).foregroundStyle(.secondary)
+                    .accessibilityLabel("Restricted metrics").help("macOS withheld process resource metrics. The process is still recorded.")
+                Text(process.name)
+            }.accessibilityElement(children:.combine)
+        } else {Text(process.name)}
     }
 }
 
@@ -362,6 +374,16 @@ private struct ProcessInspector:View {
     private var hasLegacyCPU:Bool {frames.contains {$0.processCPUAccounting == nil && $0.processes.contains {$0.id==identity?.id}}}
     private var hasCorrectedCPU:Bool {frames.contains {$0.processCPUAccounting != nil && $0.processes.contains {$0.id==identity?.id}}}
     private var displayedPower:Double? {if let summary {return summary.averagePower};return process?.cpuPowerWatts(elapsed:current?.elapsed)}
+    private var displayedMemory:UInt64? {if let summary {return summary.lastMemory};return process?.memory}
+    private var coverageIdentity:ProcessRow? {summary?.process ?? process ?? identity}
+    private var metricSource:String? {
+        switch coverageIdentity?.metricSource {
+        case "local":return "App"
+        case "privileged":return "Privileged collector"
+        case "restricted":return "Restricted by macOS"
+        default:return nil
+        }
+    }
     var body:some View {
         ScrollView {
             VStack(alignment:.leading,spacing:17) {
@@ -371,6 +393,10 @@ private struct ProcessInspector:View {
                         Text(identity.name).font(.system(size:20,weight:.semibold)).lineLimit(2)
                         Text("PID \(identity.pid) · parent \(identity.parent)").font(.system(size:10,design:.monospaced)).foregroundStyle(.secondary)
                         Text(summary != nil ? "Selected interval" : process == nil ? "Not observed at cursor" : "Observed at cursor").font(.system(size:10)).foregroundStyle(.secondary)
+                        if coverageIdentity?.memory == nil {
+                            Label("Resource metrics restricted",systemImage:"lock.fill").font(.system(size:10)).foregroundStyle(.secondary)
+                            Text("macOS withheld process metrics. The privileged collector in Preferences can improve coverage; some protected processes remain restricted.").font(.system(size:9)).foregroundStyle(.secondary)
+                        }
                     }
                     Divider()
                     inspectorSection("CPU") {
@@ -381,8 +407,8 @@ private struct ProcessInspector:View {
                         if let summary {inspectorRow("Sampled peak",explorerPercent(summary.peakCPU));inspectorRow("Covered CPU time",summary.cpuCoveredSeconds>0 ? String(format:"%.2f s",summary.cpuSeconds) : "—")}
                     }
                     inspectorSection("MEMORY BEHAVIOR") {
-                        inspectorRow("Physical footprint",(summary?.lastMemory ?? process?.memory).map(bytes) ?? "—",color:ExplorerPalette.memory)
-                        if let summary {inspectorRow("Peak in interval",bytes(summary.peakMemory));inspectorRow("End − start",explorerDelta(summary.memoryChange))}
+                        inspectorRow("Physical footprint",displayedMemory.map(bytes) ?? "—",color:ExplorerPalette.memory)
+                        if let summary {inspectorRow("Peak in interval",summary.peakMemory.map(bytes) ?? "—");inspectorRow("End − start",explorerDelta(summary.memoryChange))}
                         else {inspectorRow("Change in sample",explorerDelta(process?.growth))}
                     }
                     inspectorSection("APPLE ENERGY IMPACT") {
@@ -415,6 +441,8 @@ private struct ProcessInspector:View {
                     inspectorSection("IDENTITY / COVERAGE") {
                         inspectorRow("Started",Date(timeIntervalSince1970:Double(identity.start)/1_000_000).formatted(date:.abbreviated,time:.shortened))
                         inspectorRow("Observed parent",String(identity.parent))
+                        if let uid=coverageIdentity?.userID {inspectorRow("Owner",uid == 0 ? "root · UID 0" : "UID \(uid)")}
+                        if let metricSource {inspectorRow("Resource metrics",metricSource)}
                         inspectorRow("Samples in window",String(frames.filter {$0.processes.contains {$0.id==identity.id}}.count))
                         Text("Parent links are observations. Executable paths, signatures and arguments are not recorded. Missing readings are unavailable, not zero.").font(.system(size:9)).foregroundStyle(.secondary)
                     }
@@ -494,7 +522,7 @@ final class ExplorerTraceCache:ObservableObject {
                     }
                 } else if let process {
                     if let cpu=process.cpu,!correctedCPU || frame.processCPUAccounting != nil {values["CPU"]=[("value",cpu)]}
-                    values["Memory"]=[("value",Double(process.memory)/1048576)]
+                    if let memory=process.memory {values["Memory"]=[("value",Double(memory)/1048576)]}
                     if let watts=process.cpuPowerWatts(elapsed:frame.elapsed) {values["Energy"]=[("value",watts)]}
                     if elapsed>0 {
                         if let bytes=process.read {values["Disk",default:[]].append(("read",Double(bytes)/elapsed/1048576))}

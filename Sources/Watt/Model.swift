@@ -6,7 +6,7 @@ import WattEnergyProtocol
 
 struct ProcessRow: Identifiable, Codable {
     var pid: Int32; var parent: Int32; var start: UInt64; var name: String
-    var cpu: Double?; var memory: UInt64; var growth: Int64?
+    var cpu: Double?; var memory: UInt64?; var growth: Int64?
     var read: UInt64?; var written: UInt64?
     // Deltas over the frame's measured interval. Energy is kernel-attributed CPU energy only.
     var energyNanojoules: UInt64? = nil
@@ -14,6 +14,8 @@ struct ProcessRow: Identifiable, Codable {
     var interruptWakeups: UInt64? = nil
     var applicationID: String? = nil
     var applicationName: String? = nil
+    var userID: UInt32? = nil
+    var metricSource: String? = nil
     func cpuPowerWatts(elapsed:Double?) -> Double? {
         guard let energyNanojoules,let elapsed,elapsed.isFinite,elapsed>0 else {return nil}
         return Double(energyNanojoules)/1e9/elapsed
@@ -46,58 +48,68 @@ final class Collector {
     private(set) var failed = false
     private var previous: WattSystem?
     private var processes: [String: WattProcess] = [:]
+    private var processSource:String?
     private var last: TimeInterval?
+    private var lastSystem:TimeInterval?
     private let applicationResolver=ProcessApplicationResolver()
     private var baselineStartedAt=Date()
+    private let privilegedSample:()->ProcessTelemetrySample?
+    init(privilegedSample:@escaping ()->ProcessTelemetrySample? = {PrivilegedProcessClient.shared.sample()}) {
+        self.privilegedSample=privilegedSample
+    }
     func sample() -> Frame? {
         failed = false
         var system = WattSystem()
         guard watt_system(&system) != 0 else { failed = true; return nil }
-        let now = ProcessInfo.processInfo.systemUptime
-        let elapsed = last.map { now - $0 }
-        var buffer = [WattProcess](repeating: WattProcess(), count: 16384)
-        var denied: Int32 = 0
-        let count = watt_processes(&buffer, Int32(buffer.count), &denied)
+        let systemUptime=ProcessInfo.processInfo.systemUptime
+        let systemElapsed=lastSystem.map {systemUptime-$0}
+        let privileged=privilegedSample()
+        var buffer:[WattProcess]
+        let now:TimeInterval,sampledAt:Date,denied:Int,count:Int,source:String
+        if let privileged {
+            buffer=privileged.tasks.map(ProcessMeasurements.counters)
+            now=privileged.uptime;sampledAt=privileged.sampledAt;denied=privileged.denied
+            count=buffer.count;source="privileged"
+        } else {
+            buffer=[WattProcess](repeating:WattProcess(),count:16384)
+            var unavailable:Int32=0
+            count=Int(watt_processes(&buffer,Int32(buffer.count),&unavailable))
+            now=ProcessInfo.processInfo.systemUptime;sampledAt=Date()
+            denied=count<0 ? -1 : Int(unavailable);source="local"
+        }
+        let elapsed=last.map {now-$0}
         var next: [String: WattProcess] = [:]
-        let rows = buffer.prefix(max(0, Int(count))).map { p -> ProcessRow in
+        let rows = buffer.prefix(max(0,count)).map { p -> ProcessRow in
             let key = "\(p.pid):\(p.start)"; next[key] = p
-            let old = processes[key]
-            let cpu = old.flatMap { delta(p.cpu, $0.cpu) }.flatMap { value in elapsed.map { Double(value) / 1e9 / max($0, 0.001) * 100 } }
-            var name = p.name
-            let label = withUnsafePointer(to: &name) { ptr in ptr.withMemoryRebound(to: CChar.self, capacity: 256) { String(cString: $0) } }
+            let old=processSource==source ? processes[key] : nil
+            var row=ProcessMeasurements.row(current:p,previous:old,elapsed:elapsed,source:source)
             let application=applicationResolver.identity(for:p)
-            return ProcessRow(pid:p.pid,parent:p.parent,start:p.start,name:label,cpu:cpu,memory:p.footprint,
-                              growth:old.map { Int64(p.footprint)-Int64($0.footprint) },
-                              read:old.flatMap { delta(p.read,$0.read) },written:old.flatMap { delta(p.written,$0.written) },
-                              energyNanojoules:processEnergyDelta(current:p,previous:old),
-                              idleWakeups:old.flatMap {delta(p.idle_wakeups,$0.idle_wakeups)},
-                              interruptWakeups:old.flatMap {delta(p.interrupt_wakeups,$0.interrupt_wakeups)},
-                              applicationID:application?.id,applicationName:application?.name)
+            row.applicationID=application?.id;row.applicationName=application?.name
+            return row
         }
         applicationResolver.retain(processIDs:Set(next.keys))
         var cpu = 0.0, rx = 0.0, tx = 0.0
-        if let old = previous, let elapsed, elapsed > 0 {
+        if let old=previous,let systemElapsed,systemElapsed>0 {
             let active = Double(delta(system.user, old.user) ?? 0) + Double(delta(system.system, old.system) ?? 0)
             let idle = Double(delta(system.idle, old.idle) ?? 0)
             cpu = active / max(1, active + idle) * 100
-            rx = Double(delta(system.rx,old.rx) ?? 0)/elapsed; tx = Double(delta(system.tx,old.tx) ?? 0)/elapsed
+            rx=Double(delta(system.rx,old.rx) ?? 0)/systemElapsed;tx=Double(delta(system.tx,old.tx) ?? 0)/systemElapsed
         }
         let baseline = previous != nil
-        previous=system; processes=next; last=now
+        previous=system;processes=next;processSource=source;last=now;lastSystem=systemUptime
         guard baseline else { return nil }
-        let sampledAt=Date()
         let energyImpact=EnergyImpactCache.shared.latest(maxAge:15,now:sampledAt).flatMap { $0.startedAt>=baselineStartedAt ? $0 : nil }
         return Frame(time:sampledAt,cpu:cpu,memory:system.memory,compressed:system.compressed,swap:system.swap,
-                     download:rx,upload:tx,processes:rows,denied:count < 0 ? -1 : Int(denied),power:PowerReading.read(),elapsed:elapsed,memoryAccounting:"app-wired-compressed",processCPUAccounting:"mach-timebase-to-nanoseconds",energyImpact:energyImpact)
+                     download:rx,upload:tx,processes:rows,denied:denied,power:PowerReading.read(),elapsed:elapsed,memoryAccounting:"app-wired-compressed",processCPUAccounting:"mach-timebase-to-nanoseconds",energyImpact:energyImpact)
     }
-    func reset() { previous=nil; processes=[:]; last=nil;baselineStartedAt=Date() }
+    func reset() {previous=nil;processes=[:];processSource=nil;last=nil;lastSystem=nil;baselineStartedAt=Date()}
 }
 
 @MainActor final class Monitor: ObservableObject {
-    @Published var frames:[Frame]=[]
+    @Published var frames:[Frame]=[] {didSet{invalidateCurrentSnapshot()}}
     @Published var liveFrame:Frame?
-    @Published var historyFrames:[Frame]=[]
-    @Published var historyRange:DateInterval?
+    @Published var historyFrames:[Frame]=[] {didSet{invalidateCurrentSnapshot()}}
+    @Published var historyRange:DateInterval? {didSet{invalidateCurrentSnapshot()}}
     @Published var historyBounds:DateInterval?
     @Published var historySummaries:[ProcessSummary]=[]
     @Published var historyLoading=false
@@ -107,8 +119,8 @@ final class Collector {
     @Published var paused=false
     @Published var error:String?
     @Published var interval=5.0 {didSet {UserDefaults.standard.set(interval,forKey:"recording.interval");scheduleSample(after:0)}}
-    @Published var selected:Date?
-    @Published var gaps:[RecordingGap]=[]
+    @Published var selected:Date? {didSet{invalidateCurrentSnapshot()}}
+    @Published var gaps:[RecordingGap]=[] {didSet{invalidateCurrentSnapshot()}}
     @Published var storageBytes:Int64=0
     private var sleeping=false
     private var observers:[NSObjectProtocol]=[]
@@ -116,9 +128,21 @@ final class Collector {
     private var timer:Timer?
     private var collecting=false
     private nonisolated let backend=RecorderBackend()
+    private var cachedCurrentSnapshot:Frame?
+    private var currentSnapshotResolved=false
+    private(set) var snapshotLookupCount=0
+    private func invalidateCurrentSnapshot() {
+        cachedCurrentSnapshot=nil;currentSnapshotResolved=false
+    }
     var current:Frame? {
-        if let selected {return HistoryAnalysis.snapshot(at:selected,frames:visibleFrames,gaps:gaps)}
-        return historyRange == nil ? liveFrame : nil
+        guard let selected else {return historyRange == nil ? liveFrame : nil}
+        // A table asks for the selected snapshot from many cells and helpers.
+        // Resolve it once per data/selection change, including unavailable results.
+        if !currentSnapshotResolved {
+            cachedCurrentSnapshot=HistoryAnalysis.snapshot(at:selected,frames:visibleFrames,gaps:gaps)
+            currentSnapshotResolved=true;snapshotLookupCount+=1
+        }
+        return cachedCurrentSnapshot
     }
     func returnToLive() {historyRequest=UUID();historyRange=nil;historyFrames=[];historySummaries=[];selected=nil;historyLoading=false;historyError=nil}
     func releaseHistoryDetails() {
@@ -229,7 +253,22 @@ final class Collector {
 
 }
 
-func bytes(_ value:UInt64) -> String { ByteCountFormatter.string(fromByteCount:Int64(clamping:value),countStyle:.binary) }
+// Table cells format footprint and disk values repeatedly. Reuse the formatter
+// instead of rebuilding its localization state for every value. Serialize access
+// because diagnostics and UI callers can run on different queues.
+private final class BinaryByteFormatter:@unchecked Sendable {
+    static let shared=BinaryByteFormatter()
+    private let lock=NSLock()
+    private let formatter:ByteCountFormatter
+    private init() {
+        formatter=ByteCountFormatter();formatter.countStyle = .binary
+    }
+    func string(_ value:UInt64)->String {
+        lock.lock();defer {lock.unlock()}
+        return formatter.string(fromByteCount:Int64(clamping:value))
+    }
+}
+func bytes(_ value:UInt64) -> String {BinaryByteFormatter.shared.string(value)}
 
 func diskRate(_ value:UInt64?,elapsed:Double?) -> String {
     guard let value,let elapsed,elapsed>0 else {return "—"}
