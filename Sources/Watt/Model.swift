@@ -106,7 +106,7 @@ final class Collector {
     var visibleFrames:[Frame] {historyRange == nil ? frames : historyFrames}
     @Published var paused=false
     @Published var error:String?
-    @Published var interval=5.0 {didSet {UserDefaults.standard.set(interval,forKey:"recording.interval");scheduleSample(after:0)}}
+    @Published var interval=5.0 {didSet {UserDefaults.standard.set(interval,forKey:"recording.interval")}}
     @Published var selected:Date?
     @Published var gaps:[RecordingGap]=[]
     @Published var storageBytes:Int64=0
@@ -121,18 +121,6 @@ final class Collector {
         return historyRange == nil ? liveFrame : nil
     }
     func returnToLive() {historyRequest=UUID();historyRange=nil;historyFrames=[];historySummaries=[];selected=nil;historyLoading=false;historyError=nil}
-    func releaseHistoryDetails() {
-        historyRequest=UUID()
-        if !historyFrames.isEmpty {historyFrames=[]}
-        if !historySummaries.isEmpty {historySummaries=[]}
-        if historyLoading {historyLoading=false}
-    }
-    func restoreHistoryDetailsIfNeeded() {
-        guard let range=historyRange,historyFrames.isEmpty,!historyLoading else {return}
-        let cursor=selected
-        loadHistory(center:range.start.addingTimeInterval(range.duration/2),duration:range.duration)
-        selected=cursor
-    }
     func loadHistory(center:Date,duration:TimeInterval) {
         let range=DateInterval(start:center.addingTimeInterval(-duration/2),duration:duration)
         let request=UUID();historyRequest=request;historyRange=range;selected=center
@@ -167,52 +155,33 @@ final class Collector {
         let center=NSWorkspace.shared.notificationCenter
         observers.append(center.addObserver(forName:NSWorkspace.willSleepNotification,object:nil,queue:.main) { [weak self] _ in Task { @MainActor in self?.setSleeping(true) } })
         observers.append(center.addObserver(forName:NSWorkspace.didWakeNotification,object:nil,queue:.main) { [weak self] _ in Task { @MainActor in self?.setSleeping(false) } })
-        scheduleSample(after:0)
+        timer=Timer.scheduledTimer(withTimeInterval:1,repeats:true) { [weak self] _ in Task { @MainActor in self?.tick() } }
     }
-    private func scheduleSample(after delay:TimeInterval) {
-        timer?.invalidate();timer=nil
-        guard !paused,!sleeping,!collecting else {return}
-        let timer=Timer(timeInterval:max(0.01,delay),repeats:false) { [weak self] _ in
-            MainActor.assumeIsolated {self?.tick()}
-        }
-        timer.tolerance=min(1,max(0,delay)*0.1)
-        self.timer=timer;RunLoop.main.add(timer,forMode:.common)
-    }
+    private var nextSample=Date.distantPast
     private func tick() {
-        guard !paused,!sleeping,!collecting else {return}
-        collecting=true
-        let began=ProcessInfo.processInfo.systemUptime,cadence=interval
+        guard !paused, !sleeping, !collecting, Date() >= nextSample else { return }
+        collecting=true; nextSample=Date().addingTimeInterval(interval)
+        let cadence=interval
         queue.async { [self] in
-            let result=autoreleasepool { () -> (Frame?,String?,[RecordingGap],Int64) in
-                let (frame,failure)=backend.sample(cadence:cadence)
-                return (frame,failure,(try? backend.store?.gaps()) ?? [],backend.store?.diskBytes ?? 0)
-            }
+            let (frame,failure)=backend.sample(cadence:cadence)
+            let gaps=(try? backend.store?.gaps()) ?? []
+            let size=backend.store?.diskBytes ?? 0
             DispatchQueue.main.async {
                 self.collecting=false
-                if let frame=result.0 {
-                    self.frames=LiveFrameRetention.appending(frame,to:self.frames)
-                    self.liveFrame=frame
-                }
-                if self.error != result.1 {self.error=result.1}
-                let sameGaps=self.gaps.count==result.2.count && zip(self.gaps,result.2).allSatisfy {
-                    $0.id==$1.id && $0.start==$1.start && $0.end==$1.end && $0.reason==$1.reason
-                }
-                if !sameGaps {self.gaps=result.2}
-                if self.storageBytes != result.3 {self.storageBytes=result.3}
-                let remaining=self.interval-(ProcessInfo.processInfo.systemUptime-began)
-                self.scheduleSample(after:max(0,remaining))
+                if let frame { self.liveFrame=frame; self.frames.append(frame); if self.frames.count>720 { self.frames.removeFirst(self.frames.count-720) } }
+                self.error=failure; self.gaps=gaps; self.storageBytes=size
             }
         }
     }
     func setPaused(_ value:Bool) {
-        guard paused != value else {return};paused=value
-        if value {queue.async {self.backend.interrupt(reason:"Recording paused")}}
-        scheduleSample(after:0)
+        guard paused != value else {return}; paused=value
+        if value { queue.async { self.backend.interrupt(reason:"Recording paused") } }
+        nextSample = .distantPast
     }
     private func setSleeping(_ value:Bool) {
         sleeping=value
-        queue.async {self.backend.interrupt(reason:"Device asleep")}
-        scheduleSample(after:0)
+        queue.async { self.backend.interrupt(reason:"Device asleep") }
+        nextSample = .distantPast
     }
     var visibleGaps:[RecordingGap] {
         let range:DateInterval
@@ -234,19 +203,4 @@ func bytes(_ value:UInt64) -> String { ByteCountFormatter.string(fromByteCount:I
 func diskRate(_ value:UInt64?,elapsed:Double?) -> String {
     guard let value,let elapsed,elapsed>0 else {return "—"}
     return bytes(UInt64(Double(value)/elapsed)) + "/s"
-}
-
-// The SQLite recorder retains all samples; the live UI needs only a bounded recent working set.
-enum LiveFrameRetention {
-    static let maximumFrames=120
-    static let maximumProcessRows=50_000
-    static func appending(_ frame:Frame,to frames:[Frame])->[Frame] {
-        var next=frames;next.append(frame)
-        var rows=next.reduce(0) {$0+$1.processes.count},remove=0
-        while next.count-remove>1 && (next.count-remove>maximumFrames || rows>maximumProcessRows) {
-            rows-=next[remove].processes.count;remove+=1
-        }
-        if remove>0 {next.removeFirst(remove)}
-        return next
-    }
 }

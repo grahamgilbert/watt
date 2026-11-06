@@ -13,7 +13,6 @@ final class PowermetricsCapture {
         let startedAt=Date()
         let reply:(Data?,String?)->Void
         var source:DispatchSourceRead?
-        var deadline:DispatchSourceTimer?
         var output=Data()
         var failure:String?
         var exited=false
@@ -58,17 +57,13 @@ final class PowermetricsCapture {
                 capture.failure="Could not start Apple's energy sampler.";capture.exited=true;capture.eof=true
                 source.cancel();self.finishIfReady(capture);return
             }
-            let deadline=DispatchSource.makeTimerSource(queue:self.queue)
-            capture.deadline=deadline
-            deadline.schedule(deadline:.now()+8,leeway:.milliseconds(250))
-            deadline.setEventHandler { [weak self,weak capture] in
-                guard let self,let capture,self.current === capture else {return}
+            self.queue.asyncAfter(deadline:.now()+8) {
+                guard self.current === capture else {return}
                 if capture.exited {
                     capture.failure="Apple energy output did not finish before its deadline."
                     capture.eof=true;capture.source?.cancel();self.finishIfReady(capture)
                 } else {self.terminate(capture,reason:"Apple energy capture timed out.")}
             }
-            deadline.resume()
         }
     }
     func cancel(owner:UUID) {
@@ -110,7 +105,6 @@ final class PowermetricsCapture {
     private func finishIfReady(_ capture:Capture) {
         guard current === capture,capture.exited,capture.eof else {return}
         current=nil;capture.source?.cancel();capture.source=nil
-        capture.deadline?.cancel();capture.deadline=nil
         guard capture.failure == nil,capture.exitStatus==0 else {
             capture.reply(nil,capture.failure ?? "Apple's energy sampler could not complete the capture.");return
         }

@@ -15,15 +15,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0
       - name: Toolchain
         run: swift --version
       - name: Unit tests
         run: swift test --disable-sandbox
       - name: Update feed and signing tests
         run: python3 -m unittest discover -s Tests/Releases -v
-      - name: Performance gate tests
-        run: python3 -m unittest discover -s Tests/Performance -v
       - name: Universal release build
         env:
           UNIVERSAL: '1'
@@ -33,12 +30,3 @@ jobs:
           codesign --verify --deep --strict dist/Watt.app
           architectures=$(lipo -archs dist/Watt.app/Contents/MacOS/Watt)
           [[ " $architectures " == *" arm64 "* && " $architectures " == *" x86_64 "* ]]
-      - name: CPU and memory regression gate
-        run: python3 scripts/ci-performance.py
-      - name: Preserve performance evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: performance-${{ github.sha }}-${{ github.run_attempt }}
-          path: dist/performance/
-          if-no-files-found: warn

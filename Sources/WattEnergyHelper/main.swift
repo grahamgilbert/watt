@@ -6,9 +6,8 @@ final class EnergySession:NSObject,WattEnergyServiceProtocol {
     private let id:UUID
     init(controller:EnergyHelper,id:UUID) {self.controller=controller;self.id=id}
     func capture(withReply reply:@escaping (Data?,String?)->Void) {
-        // Admission validates the peer once; setCodeSigningRequirement below validates
-        // every XPC message. Avoid an additional full SecCode walk per sample.
-        guard let controller,NSXPCConnection.current() != nil else {
+        guard let controller,let connection=NSXPCConnection.current(),
+              EnergyServiceIdentity.validate(pid:connection.processIdentifier,identifier:EnergyServiceConfiguration.appIdentifier,team:controller.team) else {
             reply(nil,"The energy client is not an authorized Watt release.");return
         }
         controller.capture.capture(owner:id,reply:reply)

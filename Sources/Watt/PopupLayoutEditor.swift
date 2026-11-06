@@ -2,11 +2,8 @@ import SwiftUI
 import AppKit
 import WattEnergyProtocol
 
-@MainActor final class PopupLayoutEditorWindowController:NSWindowController,NSWindowDelegate {
-    private let layout:PopupLayoutSettings
-    private let monitor:Monitor
+@MainActor final class PopupLayoutEditorWindowController:NSWindowController {
     init(layout:PopupLayoutSettings,monitor:Monitor) {
-        self.layout=layout;self.monitor=monitor
         let availableWidth=NSScreen.main?.visibleFrame.width ?? 1440
         let initialWidth=min(availableWidth-40,max(900,layout.contentWidth()+412))
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:initialWidth,height:760),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false)
@@ -15,15 +12,9 @@ import WattEnergyProtocol
         window.isReleasedWhenClosed=false
         window.contentView=NSHostingView(rootView:PopupLayoutEditorView(layout:layout,monitor:monitor))
         super.init(window:window)
-        window.delegate=self
         window.center()
         window.setFrameAutosaveName("WattPopupLayoutEditor")
     }
-    override func showWindow(_ sender:Any?) {
-        if window?.contentView == nil {window?.contentView=NSHostingView(rootView:PopupLayoutEditorView(layout:layout,monitor:monitor))}
-        super.showWindow(sender)
-    }
-    func windowWillClose(_ notification:Notification) {window?.contentView=nil}
     required init?(coder:NSCoder) {fatalError("init(coder:) has not been implemented")}
 }
 

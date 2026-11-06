@@ -26,9 +26,7 @@ final class RecorderBackend: @unchecked Sendable {
 
     func restore() throws -> ([Frame], [RecordingGap]) {
         guard let store else { return ([], []) }
-        // The database owns the full timeline. Restore only a small live suffix
-        // instead of decoding an hour of every process on the main thread.
-        let frames = try store.recent(limit:36,maximumBytes:8*1024*1024)
+        let frames = try store.recent()
         let gaps = try store.gaps()
         lastFrame = frames.last?.time
         if let open = gaps.last(where: { $0.end == nil }) { gap = open; persistedGap = open.id }

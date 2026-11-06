@@ -36,9 +36,7 @@ final class HistoryStore {
     let policy: HistoryPolicy
     private let freeBytes: () -> Int64
     private var payload: Int64 = 0
-    private let encoder=JSONEncoder()
-    private let decoder=JSONDecoder()
-    private var gapsCache:(limit:Int,dataVersion:Int64,values:[RecordingGap])?
+    private var writes = 0
     init(path: String, policy: HistoryPolicy = HistoryPolicy(), freeBytes: (() -> Int64)? = nil) throws {
         self.path = path; self.policy = policy
         self.freeBytes = freeBytes ?? {
@@ -93,7 +91,7 @@ final class HistoryStore {
         guard sqlite3_step(s) == SQLITE_DONE else { throw failure() }
     }
     func append(_ frame: Frame, now: Date = Date()) throws {
-        let data = try encoder.encode(frame)
+        let data = try JSONEncoder().encode(frame)
         guard data.count <= policy.maximumFrameBytes, Int64(data.count) <= policy.payloadBytes else { throw HistoryError.frameTooLarge }
         guard freeBytes() >= policy.minimumFreeBytes + Int64(data.count) * 3 else { throw HistoryError.insufficientSpace }
         // Refresh accounting after pruning; rolled-back inserts never alter it.
@@ -102,7 +100,6 @@ final class HistoryStore {
             let cutoff = now.addingTimeInterval(-policy.retention).timeIntervalSince1970
             retained -= try scalar("SELECT coalesce(sum(bytes),0) FROM frames WHERE time < \(cutoff)")
             try execute("DELETE FROM frames WHERE time < \(cutoff); DELETE FROM gaps WHERE end IS NOT NULL AND end < \(cutoff)")
-            if sqlite3_changes(db)>0 {gapsCache=nil}
             while retained + Int64(data.count) > policy.payloadBytes {
                 retained -= try scalar("SELECT coalesce(sum(bytes),0) FROM (SELECT bytes FROM frames ORDER BY time LIMIT 64)")
                 try execute("DELETE FROM frames WHERE time IN (SELECT time FROM frames ORDER BY time LIMIT 64)")
@@ -114,8 +111,8 @@ final class HistoryStore {
             try finish(s)
         }
         payload = retained + Int64(data.count)
-        // SQLite passively checkpoints the bounded WAL automatically. Forcing a
-        // TRUNCATE and vacuum every minute caused avoidable write/flush bursts.
+        writes += 1
+        if writes % 12 == 0 { try checkpoint() }
         // Account for all three files, not just live payload. Page reuse normally prevents this trip.
         if diskBytes > policy.databaseBytes { try checkpoint(); if diskBytes > policy.databaseBytes { throw HistoryError.budgetExceeded } }
     }
@@ -131,19 +128,14 @@ final class HistoryStore {
         // Reclaim a bounded number of free pages on new incremental-vacuum files.
         try execute("PRAGMA incremental_vacuum(128)")
     }
-    func recent(limit: Int = 720,maximumBytes:Int64=16*1024*1024) throws -> [Frame] {
+    func recent(limit: Int = 720) throws -> [Frame] {
         let s = try statement("SELECT data FROM frames ORDER BY time DESC LIMIT ?"); defer { sqlite3_finalize(s) }
         sqlite3_bind_int(s, 1, Int32(clamping: max(0, limit)))
         var frames: [Frame] = []
-        var decodedBytes:Int64=0
         var result = sqlite3_step(s)
         while result == SQLITE_ROW {
-            let count=sqlite3_column_bytes(s,0)
-            // Return a bounded suffix; the full detail remains queryable in SQLite.
-            guard decodedBytes+Int64(count)<=max(0,maximumBytes) else {return frames.reversed()}
             if let bytes = sqlite3_column_blob(s, 0) {
-                frames.append(try decoder.decode(Frame.self, from: Data(bytes: bytes, count: Int(count))))
-                decodedBytes+=Int64(count)
+                frames.append(try JSONDecoder().decode(Frame.self, from: Data(bytes: bytes, count: Int(sqlite3_column_bytes(s, 0)))))
             }
             result = sqlite3_step(s)
         }
@@ -151,7 +143,7 @@ final class HistoryStore {
         return frames.reversed()
     }
     func bounds() throws -> DateInterval? {
-        let s=try statement("SELECT (SELECT time FROM frames ORDER BY time LIMIT 1),(SELECT time FROM frames ORDER BY time DESC LIMIT 1)");defer {sqlite3_finalize(s)}
+        let s=try statement("SELECT min(time),max(time) FROM frames");defer {sqlite3_finalize(s)}
         guard sqlite3_step(s)==SQLITE_ROW,sqlite3_column_type(s,0) != SQLITE_NULL else {return nil}
         return DateInterval(start:Date(timeIntervalSince1970:sqlite3_column_double(s,0)),end:Date(timeIntervalSince1970:sqlite3_column_double(s,1)))
     }
@@ -166,7 +158,7 @@ final class HistoryStore {
         sqlite3_bind_double(s,1,range.start.timeIntervalSince1970);sqlite3_bind_double(s,2,range.end.timeIntervalSince1970)
         var frames:[Frame]=[];var status=sqlite3_step(s)
         while status==SQLITE_ROW {
-            if let bytes=sqlite3_column_blob(s,0) {frames.append(try decoder.decode(Frame.self,from:Data(bytes:bytes,count:Int(sqlite3_column_bytes(s,0)))))}
+            if let bytes=sqlite3_column_blob(s,0) {frames.append(try JSONDecoder().decode(Frame.self,from:Data(bytes:bytes,count:Int(sqlite3_column_bytes(s,0)))))}
             status=sqlite3_step(s)
         }
         guard status==SQLITE_DONE else {throw failure()};return frames
@@ -175,18 +167,13 @@ final class HistoryStore {
         let id = UUID().uuidString
         let s = try statement("INSERT INTO gaps VALUES(?,?,NULL,?)"); defer { sqlite3_finalize(s) }
         bind(id, to: s, at: 1); sqlite3_bind_double(s, 2, start.timeIntervalSince1970); bind(reason, to: s, at: 3)
-        try finish(s);gapsCache=nil;return id
+        try finish(s); return id
     }
     func closeGap(_ id: String, at end: Date) throws {
         let s = try statement("UPDATE gaps SET end=max(start,?) WHERE id=?"); defer { sqlite3_finalize(s) }
-        sqlite3_bind_double(s, 1, end.timeIntervalSince1970); bind(id, to: s, at: 2); try finish(s);gapsCache=nil
+        sqlite3_bind_double(s, 1, end.timeIntervalSince1970); bind(id, to: s, at: 2); try finish(s)
     }
     func gaps(limit: Int = 1000) throws -> [RecordingGap] {
-        // A gap changes only on interruption/recovery or retention pruning. Keep
-        // the common unchanged result instead of decoding up to 1000 rows per tick.
-        // data_version also notices another connection writing to this database.
-        let version=try scalar("PRAGMA data_version")
-        if let cached=gapsCache,cached.limit==limit,cached.dataVersion==version {return cached.values}
         let s = try statement("SELECT id,start,end,reason FROM gaps ORDER BY start DESC LIMIT ?"); defer { sqlite3_finalize(s) }
         sqlite3_bind_int(s, 1, Int32(clamping: limit)); var result: [RecordingGap] = []
         var status = sqlite3_step(s)
@@ -194,7 +181,6 @@ final class HistoryStore {
             result.append(RecordingGap(id: String(cString: sqlite3_column_text(s,0)), start: Date(timeIntervalSince1970: sqlite3_column_double(s,1)), end: sqlite3_column_type(s,2) == SQLITE_NULL ? nil : Date(timeIntervalSince1970: sqlite3_column_double(s,2)), reason: String(cString: sqlite3_column_text(s,3))))
             status = sqlite3_step(s)
         }
-        guard status == SQLITE_DONE else { throw failure() }
-        let ordered=Array(result.reversed());gapsCache=(limit,version,ordered);return ordered
+        guard status == SQLITE_DONE else { throw failure() }; return result.reversed()
     }
 }

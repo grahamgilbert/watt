@@ -12,7 +12,7 @@ zsh scripts/build-app.sh
 open dist/Watt.app
 ```
 
-Watt launches into the menu bar without opening or constructing Process Explorer. Click the menu bar item for the popup. Its controls are direct buttons: Open Process Explorer, Preferences and Quit. Preferences combines appearance, the sample interval, popup layout editing, and updates.
+The development build opens the unified Process Explorer at launch. Click the menu bar item for the popup. Its controls are direct buttons: Open Process Explorer, Preferences and Quit. Preferences combines appearance, the sample interval, popup layout editing, and updates.
 
 ## One Process Explorer
 
@@ -34,9 +34,9 @@ Battery watts estimate voltage × signed current. The popup shows the observed s
 
 SQLite is local at `~/Library/Application Support/Watt/history.sqlite`, outside this checkout. Schema 3 migrates original frame records. Retention is up to 48 hours, subject to a 4 GiB payload quota within an 8 GiB file budget and a 256 MiB free-space reserve. Oldest detail is pruned first. WAL checkpointing is bounded; a transaction/WAL may briefly exceed the file threshold before recovery. Continued writing reports an error if it cannot recover.
 
-Sleep/wake, restarts, delayed polling, clock discontinuities and write failures reset baselines and create persisted gaps. A timestamp without nearby coverage does not substitute a distant observation. Write failures can delay persisting a gap until recovery. Abrupt termination can lose an unpersisted failure reason; restart still marks unobserved time.
+Pauses, sleep/wake, restarts, delayed polling, clock discontinuities and write failures reset baselines and create persisted gaps. A timestamp without nearby coverage does not substitute a distant observation. Write failures can delay persisting a gap until recovery. Abrupt termination can lose an unpersisted failure reason; restart still marks unobserved time.
 
-The live cache keeps at most 120 complete frames and 50,000 process rows, always retaining the newest inventory. Startup restores at most 36 frames within an 8 MiB encoded budget; older detail remains in SQLite and is loaded explicitly through history. Historical queries are bounded to 1,500 frames and 96 MiB of payload. Oversized requests ask for a narrower window instead of silently dropping samples. Totals use complete known intervals and exclude gaps. Earlier records without elapsed metadata can show gauges/peaks but cannot supply reliable CPU time or interval totals. There are no rollups or recovery of expired/unrecorded detail.
+The live cache contains up to 720 frames. Historical queries are bounded to 1,500 frames and 96 MiB of payload. Oversized requests ask for a narrower window instead of silently dropping samples. Totals use complete known intervals and exclude gaps. Earlier records without elapsed metadata can show gauges/peaks but cannot supply reliable CPU time or interval totals. There are no rollups or recovery of expired/unrecorded detail.
 
 Still to implement: hardware temperature/component-power collectors, live validation of privileged energy collection, pressure accounting, incident/build markers and baseline comparison, long-term rollups, exact coalition attribution, export, more accessibility work and measured width parity. iStat and security settings are untouched.
 
@@ -63,7 +63,3 @@ Popup layout: Preferences opens a separate layout editor. Metric tiles occupy a 
 Per-process CPU energy: supported ARM Macs expose cumulative nanojoules through `proc_pid_rusage(RUSAGE_INFO_V6)`. Watt stores interval deltas, derives estimated watts from measured elapsed time, and records joules over covered historical intervals. Missing/protected/unsupported readings use a dash; a measured zero remains zero. This CPU-only estimate is not Activity Monitor's Energy Impact score, GPU energy, or whole-system power. Kernel semantics: [Apple Recount](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/kern/recount.h).
 
 Apple Energy Impact: the optional signed helper runs a fixed, bounded `powermetrics` capture. Install or remove it in Preferences; macOS requires administrator approval in Login Items & Extensions. The helper and app enforce matching Developer ID teams and exact signing identifiers on their XPC connection. Scores retain their capture timestamps/IDs in SQLite and are separate from CPU watts. Historical scores count unique captures and exclude gaps. The process table only joins matching process lifetimes; missing/stale readings stay unavailable. Live privileged collection requires validation on an approved signed installation.
-
-## Performance regression checks
-
-CI compares three release-build Explorer CPU/memory measurements against the base revision on the same Intel macOS runner. Regressions beyond declared noise margins or absolute budgets fail verification and stop release publication; raw measurements and logs are retained even on failure. This fixture gate does not cover background recording, helper overhead or battery life. See [the workload, budgets and limits](docs/PERFORMANCE_GATES.md).

@@ -55,7 +55,6 @@ struct PreferencesView:View {
     @ObservedObject var updater:AppUpdater
     @ObservedObject var popupLayout:PopupLayoutSettings
     var energyCollector:EnergyImpactCollector?=nil
-    var layoutPresenter:PopupLayoutEditorPresenter?=nil
     @StateObject private var layoutEditor=PopupLayoutEditorPresenter()
     var body:some View {
         Form {
@@ -89,7 +88,7 @@ struct PreferencesView:View {
                         Text("Reorder, show or hide tiles, and choose their width.").font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button("Edit layout…") {(layoutPresenter ?? layoutEditor).show(layout:popupLayout,monitor:monitor)}
+                    Button("Edit layout…") {layoutEditor.show(layout:popupLayout,monitor:monitor)}
                 }
             }
             if let energyCollector {

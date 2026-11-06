@@ -31,29 +31,20 @@ public struct EnergyImpactSample:Codable,Identifiable,Sendable {
     public let startedAt:Date
     public let endedAt:Date
     public let tasks:[EnergyImpactTask]
-    // One index per immutable capture avoids scanning the full process inventory for every table row.
-    private let taskIndices:[Int32:Int]
-    private enum CodingKeys:String,CodingKey {case id,startedAt,endedAt,tasks}
     public init(id:String=UUID().uuidString,startedAt:Date,endedAt:Date,tasks:[EnergyImpactTask]) {
         self.id=id;self.startedAt=startedAt;self.endedAt=endedAt;self.tasks=tasks
-        taskIndices=Dictionary(tasks.enumerated().map {($0.element.pid,$0.offset)},uniquingKeysWith:{first,_ in first})
-    }
-    public init(from decoder:Decoder) throws {
-        let values=try decoder.container(keyedBy:CodingKeys.self)
-        self.init(id:try values.decode(String.self,forKey:.id),startedAt:try values.decode(Date.self,forKey:.startedAt),
-                  endedAt:try values.decode(Date.self,forKey:.endedAt),tasks:try values.decode([EnergyImpactTask].self,forKey:.tasks))
     }
     public var hasEnergyValues:Bool {tasks.contains {$0.energyImpact != nil || $0.energyImpactPerSecond != nil}}
     public func task(forPID pid:Int32,processStart:Date?,at date:Date,maximumAge:TimeInterval=5)->EnergyImpactTask? {
         guard let processStart,maximumAge.isFinite,maximumAge>=0,endedAt<=date,
               date.timeIntervalSince(endedAt)<=maximumAge,processStart<=startedAt else {return nil}
-        guard let index=taskIndices[pid] else {return nil}
-        let task=tasks[index]
-        if let observed=task.processStartMicroseconds,
-           abs(Double(observed)/1e6-processStart.timeIntervalSince1970)>=0.00001 {
-            return nil
+        return tasks.first {task in
+            guard task.pid==pid else {return false}
+            if let observed=task.processStartMicroseconds {
+                return abs(Double(observed)/1e6-processStart.timeIntervalSince1970)<0.00001
+            }
+            return true
         }
-        return task
     }
     public func validate() throws {
         guard startedAt.timeIntervalSince1970.isFinite,endedAt.timeIntervalSince1970.isFinite,
