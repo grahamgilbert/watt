@@ -432,4 +432,14 @@ Use paired CPU and memory percentage area charts, separate download and upload t
 
 Memory accounting correction: used RAM excludes file-backed cache and purgeable anonymous pages, using anonymous minus purgeable + wired + physical compressor pages. New samples carry memoryAccounting=app-wired-compressed; older snapshots retain their original cached-memory-inclusive VM estimate and are not rewritten.
 
-Sparkle distribution: signed stable/prerelease feeds, hourly automatic checks, manual checks and prerelease opt-in in a collapsed popup Updates section. Release jobs verify the embedded public key, sign nested Sparkle helpers before the app, notarize the payload, sign notes and feeds, and publish universal DMGs. Stable promotion preserves the original payload signature.
+Sparkle distribution: signed stable/prerelease feeds, hourly automatic checks, manual checks and prerelease opt-in in a unified Preferences pane. Release jobs verify the embedded public key, sign nested Sparkle helpers before the app, notarize the payload, sign notes and feeds, and publish universal DMGs. Stable promotion preserves the original payload signature.
+
+Preferences now combines sample interval, menu bar appearance, and Sparkle update options in one native window. The popup footer only offers Preferences and Quit. Utility buttons have a single rectangular hit target covering icon, text, and padding. Sample interval persists across launches.
+
+Appearance persistence uses the fixed com.grahamgilbert.Watt preferences domain. A one-time migration copies missing menu settings from the dev.watt.local prototype domain and preserves explicit choices in the new domain, including an explicitly disabled color setting.
+
+### Configurable square tile layout and process energy
+
+The popup is a two-column grid of square metric tiles. CPU, used memory, download, upload, battery flow, and process CPU energy are initially visible; additional CPU-process, disk activity, and memory-detail tiles can be enabled. Preferences opens a separate layout editor with drag reordering, show/hide controls, optional double-width tiles, reset, and keyboard-friendly movement. Hidden tiles consume no grid space. More content scrolls inside the popup while its action footer stays reachable.
+
+Per-process energy uses the kernel CPU-energy nanojoule counter, preserving unavailable readings, PID lifetimes, counter resets and recording gaps. Show estimated watts at a snapshot, historical joules, weighted average/peak watts and coverage in Explorer, plus process energy in the popup. This is not Apple's unitless Energy Impact score and does not include GPU/system energy. See Apple's [Recount CPU-energy definition](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/kern/recount.h) and [rusage_info_v6](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/resource.h).

@@ -47,7 +47,7 @@ import SwiftUI
 // SwiftUI content snapshot with explicit fixture data; never opens the recording database.
 @MainActor func renderPopupPreview(to path:String) {
     let processes=[("Compiler",18.4),("Indexer",8.7),("WindowServer",4.3),("Files",3.1),("Messages",0.2)].enumerated().map {index,item in
-        ProcessRow(pid:Int32(100+index),parent:1,start:1,name:item.0,cpu:item.1,memory:100_000_000,growth:0,read:0,written:0)
+        ProcessRow(pid:Int32(100+index),parent:1,start:1,name:item.0,cpu:item.1,memory:100_000_000,growth:0,read:0,written:0,energyNanojoules:UInt64(5-index)*250_000_000)
     }
     let cpuValues:[Double]=[7,8,6,7,9,8,7]
     let downloads:[Double]=[20,22,18,70,160,130,35,40,85,61.3]
@@ -60,13 +60,16 @@ import SwiftUI
                      compressed:1_800_000_000,swap:0,
                      download:downloads[index%downloads.count]*1024,
                      upload:uploads[index%uploads.count]*1024,
-                     processes:processes,denied:0,power:power)
+                     processes:processes,denied:0,power:power,elapsed:5,memoryAccounting:"app-wired-compressed")
     }
     let model=Monitor(previewFrames:frames)
+    let suite="watt-popup-render-"+UUID().uuidString
+    let defaults=UserDefaults(suiteName:suite)!
+    defer {defaults.removePersistentDomain(forName:suite)}
+    let layout=PopupLayoutSettings(defaults:defaults)
     NSAppearance(named:.darkAqua)!.performAsCurrentDrawingAppearance {
-        let content=LiveView(monitor:model,open:{},configure:{},updater:AppUpdater(startingUpdater:false)).environment(\.colorScheme,.dark).background(Color(red:0.17,green:0.16,blue:0.18))
-        let renderer=ImageRenderer(content:content);renderer.scale=2
-        guard let image=renderer.nsImage,let tiff=image.tiffRepresentation,let bitmap=NSBitmapImageRep(data:tiff),let png=bitmap.representation(using:.png,properties:[:]) else {fputs("Popup preview could not be rendered\n",stderr);exit(1)}
-        do {try png.write(to:URL(fileURLWithPath:path))} catch {fputs("Popup preview failed: \(error)\n",stderr);exit(1)}
+        let content=LiveView(monitor:model,open:{},configure:{},layout:layout).environment(\.colorScheme,.dark).background(Color(red:0.17,green:0.16,blue:0.18))
+        do {try renderHostedView(content,size:NSSize(width:380,height:710),to:path)}
+        catch {fputs("Popup preview failed: \(error)\n",stderr);exit(1)}
     }
 }

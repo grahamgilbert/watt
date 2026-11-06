@@ -110,12 +110,16 @@ struct LiveView:View {
     @ObservedObject var monitor:Monitor
     var open:()->Void
     var configure:()->Void
-    @ObservedObject var updater:AppUpdater
+    @ObservedObject var layout:PopupLayoutSettings
+    private var popupWidth:CGFloat {min(max(380,layout.contentWidth()+44),max(380,(NSScreen.main?.visibleFrame.width ?? 1440)-40))}
+    private var maximumDashboardHeight:CGFloat {max(160,(NSScreen.main?.visibleFrame.height ?? 900)-240)}
     var body:some View {
         VStack(alignment:.leading,spacing:18) {
-            HStack {Text("Watt").font(.title2.weight(.semibold));Spacer();Text(monitor.paused ? "Paused" : "Recording").font(.caption).foregroundStyle(.secondary)}
+            HStack {Text("Watt").font(.title2.weight(.semibold));Spacer()}
             if let f=monitor.liveFrame {
-                PopupDashboard(frame:f,frames:Array(monitor.frames.suffix(36)))
+                ScrollView([.vertical,.horizontal]) {
+                    PopupDashboard(frame:f,frames:Array(monitor.frames.suffix(36)),layout:layout).frame(maxWidth:.infinity)
+                }.scrollIndicators(.hidden).frame(height:min(layout.contentHeight(),maximumDashboardHeight))
             } else {Text("Measuring the first complete interval…").foregroundStyle(.secondary)}
             if let error=monitor.error {Text(error).font(.caption).foregroundStyle(.orange)}
             Divider()
@@ -130,44 +134,37 @@ struct LiveView:View {
                         .frame(maxWidth:.infinity)
                         .background(.primary.opacity(0.055),in:RoundedRectangle(cornerRadius:8))
                 }.buttonStyle(.plain)
-                HStack {
-                    Button(action:configure) {Label("Appearance",systemImage:"slider.horizontal.3")}
-                    Spacer()
-                    Button {monitor.setPaused(!monitor.paused)} label: {Label(monitor.paused ? "Resume" : "Pause",systemImage:monitor.paused ? "play.fill" : "pause.fill")}
-                    Spacer()
-                    Button {NSApp.terminate(nil)} label: {Label("Quit",systemImage:"power")}
-                }.buttonStyle(.plain).font(.system(size:11,weight:.medium)).foregroundStyle(.secondary).padding(.horizontal,3).padding(.vertical,2)
-                DisclosureGroup("Updates") {
-                    UpdateControls(updater:updater).padding(.top,6)
-                }.font(.system(size:11)).foregroundStyle(.secondary)
-                HStack {
-                    Text("Sample every").font(.system(size:11)).foregroundStyle(.secondary)
-                    Spacer()
-                    HStack(spacing:2) {
-                        ForEach([2.0,5,10],id:\.self) { seconds in
-                            Button {monitor.interval=seconds} label: {
-                                Text("\(Int(seconds))s").font(.system(size:11,weight:monitor.interval==seconds ? .semibold : .regular))
-                                    .foregroundStyle(monitor.interval==seconds ? .primary : .secondary)
-                                    .frame(width:32,height:22)
-                                    .background(monitor.interval==seconds ? Color.primary.opacity(0.1) : Color.clear,in:RoundedRectangle(cornerRadius:5))
-                            }.buttonStyle(.plain).accessibilityValue(monitor.interval==seconds ? "Selected" : "")
-                        }
-                    }.padding(3).background(.primary.opacity(0.04),in:RoundedRectangle(cornerRadius:7))
+                HStack(spacing:8) {
+                    PopupAction(title:"Preferences…",symbol:"slider.horizontal.3",action:configure)
+                    PopupAction(title:"Quit",symbol:"power") {NSApp.terminate(nil)}
                 }
+
             }
-        }.padding(22).frame(width:380)
+        }.padding(22).frame(width:popupWidth)
     }
 }
 
 @MainActor final class AppDelegate:NSObject,NSApplicationDelegate,NSWindowDelegate,NSPopoverDelegate {
     let menuSettings=MenuBarSettings()
+    let popupLayout=PopupLayoutSettings()
     lazy var updater=AppUpdater()
     var ribbon:Ribbon?
     var appearanceSubscription:AnyCancellable?
-    let monitor=Monitor();var item:NSStatusItem!;let popover=NSPopover();var window:NSWindow?;var subscription:AnyCancellable?
+    let monitor=Monitor();var item:NSStatusItem!;let popover=NSPopover();var window:NSWindow?;var preferencesWindow:NSWindow?;var subscription:AnyCancellable?
     func applicationDidFinishLaunching(_ notification:Notification) {
         NSApp.setActivationPolicy(.accessory)
+        let mainMenu=NSMenu()
+        let applicationItem=NSMenuItem()
+        let applicationMenu=NSMenu(title:"Watt")
+        let showItem=NSMenuItem(title:"Show Watt",action:#selector(statusPressed(_:)),keyEquivalent:"")
+        showItem.target=self;applicationMenu.addItem(showItem)
+        let preferencesItem=NSMenuItem(title:"Preferences…",action:#selector(showPreferences),keyEquivalent:",")
+        preferencesItem.target=self;applicationMenu.addItem(preferencesItem)
+        applicationMenu.addItem(.separator())
+        applicationMenu.addItem(NSMenuItem(title:"Quit Watt",action:#selector(NSApplication.terminate(_:)),keyEquivalent:"q"))
+        applicationItem.submenu=applicationMenu;mainMenu.addItem(applicationItem);NSApp.mainMenu=mainMenu
         item=NSStatusBar.system.statusItem(withLength:menuSettings.width)
+        item.button?.setAccessibilityLabel("Watt")
         item.button?.target=self;item.button?.action=#selector(statusPressed(_:))
         let ribbon=Ribbon(frame:NSRect(x:0,y:0,width:menuSettings.width,height:24));self.ribbon=ribbon;ribbon.settings=menuSettings;item.button?.addSubview(ribbon)
         appearanceSubscription=menuSettings.objectWillChange.sink { [weak self] in DispatchQueue.main.async {guard let self else{return};self.item.length=self.menuSettings.width;self.ribbon?.frame.size.width=self.menuSettings.width;self.ribbon?.needsDisplay=true} }
@@ -181,12 +178,18 @@ struct LiveView:View {
         showExplorer()
     }
     private func showLiveContent() {
-        popover.contentViewController=NSHostingController(rootView:LiveView(monitor:monitor,open:{[weak self] in self?.showExplorer()},configure:{[weak self] in self?.showAppearance()},updater:updater))
+        popover.contentViewController=NSHostingController(rootView:LiveView(monitor:monitor,open:{[weak self] in self?.showExplorer()},configure:{[weak self] in self?.showPreferences()},layout:popupLayout))
     }
-    private func showAppearance() {
-        window?.orderOut(nil)
-        popover.contentViewController=NSHostingController(rootView:MenuBarSettingsView(settings:menuSettings,monitor:monitor,back:{[weak self] in self?.showLiveContent()}))
-        if !popover.isShown,let button=item.button {NSApp.activate();popover.show(relativeTo:button.bounds,of:button,preferredEdge:.minY);popover.contentViewController?.view.window?.makeKey()}
+    @objc private func showPreferences() {
+        popover.performClose(nil)
+        if preferencesWindow == nil {
+            let preferences=NSWindow(contentRect:NSRect(x:0,y:0,width:520,height:680),styleMask:[.titled,.closable],backing:.buffered,defer:false)
+            preferences.title="Watt Preferences"
+            preferences.contentView=NSHostingView(rootView:PreferencesView(settings:menuSettings,monitor:monitor,updater:updater,popupLayout:popupLayout))
+            preferences.isReleasedWhenClosed=false
+            preferences.center();preferencesWindow=preferences
+        }
+        NSApp.activate();preferencesWindow?.makeKeyAndOrderFront(nil)
     }
     private var outsideMonitor:Any?
     private var localMonitor:Any?
@@ -223,7 +226,7 @@ struct LiveView:View {
     private func publishWindowState() {
         #if DEBUG
         // Development-only visibility probe for real outside-click checks. No input events are logged.
-        let state:[String:Any] = ["explorerVisible":window?.isVisible ?? false,"popoverVisible":popover.isShown,"statusWidth":item.length,"appActive":NSApp.isActive,"keyWindow":window?.isKeyWindow ?? false,"globalMonitorInstalled":outsideMonitor != nil,"localMonitorInstalled":localMonitor != nil,"updatedAt":Date().timeIntervalSince1970]
+        let state:[String:Any] = ["menuColor":menuSettings.color,"paused":monitor.paused,"preferencesVisible":preferencesWindow?.isVisible ?? false,"explorerVisible":window?.isVisible ?? false,"popoverVisible":popover.isShown,"statusWidth":item.length,"appActive":NSApp.isActive,"keyWindow":window?.isKeyWindow ?? false,"globalMonitorInstalled":outsideMonitor != nil,"localMonitorInstalled":localMonitor != nil,"updatedAt":Date().timeIntervalSince1970]
         let path=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("Watt/window-state.json")
         if let data=try? JSONSerialization.data(withJSONObject:state,options:.sortedKeys) {try? data.write(to:path,options:.atomic)}
         #endif
@@ -232,17 +235,39 @@ struct LiveView:View {
     func toggle() {if popover.isShown{popover.performClose(nil)}else if let button=item.button{showLiveContent();NSApp.activate();popover.show(relativeTo:button.bounds,of:button,preferredEdge:.minY);popover.contentViewController?.view.window?.makeKey()}}
     func showExplorer() {
         popover.performClose(nil)
-        if window==nil {let w=NSWindow(contentRect:NSRect(x:0,y:0,width:1280,height:820),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false);w.title="Watt · Process Explorer";w.delegate=self;w.contentView=NSHostingView(rootView:ProcessExplorerView(monitor:monitor));w.isReleasedWhenClosed=false;w.center();window=w}
+        if window==nil {let w=NSWindow(contentRect:NSRect(x:0,y:0,width:1440,height:900),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false);w.title="Watt · Process Explorer";w.delegate=self;w.contentView=NSHostingView(rootView:ProcessExplorerView(monitor:monitor));w.isReleasedWhenClosed=false;w.center();window=w}
         window?.title="Watt · Process Explorer"
         window?.contentView=NSHostingView(rootView:ProcessExplorerView(monitor:monitor))
         NSApp.activate();DispatchQueue.main.async { [weak self] in self?.window?.makeKeyAndOrderFront(nil);self?.publishWindowState() }
     }
 }
 
+if CommandLine.arguments.contains("--diagnose-settings") {
+    MainActor.assumeIsolated {
+        let settings=MenuBarSettings()
+        print("Bundle: \(Bundle.main.bundleIdentifier ?? "unbundled") · preferences: \(MenuBarSettings.preferencesDomain) · color: \(settings.color) · width: \(settings.width)")
+    }
+    exit(0)
+}
 if CommandLine.arguments.contains("--smoke-test") {
     let collector=Collector();_ = collector.sample();Thread.sleep(forTimeInterval:1)
     if let frame=collector.sample() {print("CPU \(frame.cpu), memory \(bytes(frame.memory)), processes \(frame.processes.count), unavailable \(frame.denied), battery \(frame.power?.formatted ?? "unavailable")");exit(frame.processes.isEmpty ? 1 : 0)}
     exit(1)
+}
+if let index=CommandLine.arguments.firstIndex(of:"--render-preferences-preview"),CommandLine.arguments.count>index+1 {
+    MainActor.assumeIsolated {do {try renderPreferencesPreview(to:CommandLine.arguments[index+1])}catch {fputs("Preferences preview failed: \(error)\n",stderr);exit(1)}}
+    exit(0)
+}
+if let index=CommandLine.arguments.firstIndex(of:"--render-layout-preview"),CommandLine.arguments.count>index+1 {
+    MainActor.assumeIsolated {do {try renderPreferencesPreview(to:CommandLine.arguments[index+1],editor:true)}catch {fputs("Layout preview failed: \(error)\n",stderr);exit(1)}}
+    exit(0)
+}
+if let index=CommandLine.arguments.firstIndex(of:"--render-explorer-preview"),CommandLine.arguments.count>index+1 {
+    MainActor.assumeIsolated {
+        do {try renderExplorerPreview(to:CommandLine.arguments[index+1],applications:CommandLine.arguments.contains("--applications"))}
+        catch {fputs("Explorer preview failed: \(error)\n",stderr);exit(1)}
+    }
+    exit(0)
 }
 if let index=CommandLine.arguments.firstIndex(of:"--render-popup-preview"),CommandLine.arguments.count>index+1 {MainActor.assumeIsolated {renderPopupPreview(to:CommandLine.arguments[index+1])};exit(0)}
 if let index=CommandLine.arguments.firstIndex(of:"--render-menu-preview"),CommandLine.arguments.count>index+1 {MainActor.assumeIsolated {renderMenuPreview(to:CommandLine.arguments[index+1])};exit(0)}

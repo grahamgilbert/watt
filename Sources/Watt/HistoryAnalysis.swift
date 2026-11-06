@@ -18,6 +18,10 @@ struct ProcessSummary:Identifiable {
     var readBytes:UInt64=0
     var writtenBytes:UInt64=0
     var ioSamples=0
+    var energyJoules=0.0
+    var energyCoveredSeconds=0.0
+    var peakPower:Double?
+    var averagePower:Double? {energyCoveredSeconds>0 ? energyJoules/energyCoveredSeconds : nil}
     var id:String {process.id}
     var averageCPU:Double? {cpuCoveredSeconds>0 ? cpuSeconds/cpuCoveredSeconds*100 : nil}
     var memoryChange:Int64? {samples>1 ? Int64(lastMemory)-Int64(firstMemory) : nil}
@@ -35,7 +39,7 @@ enum HistoryAnalysis {
             let elapsed=f.elapsed ?? 0
             let intervalStart=f.time.addingTimeInterval(-elapsed)
             // Totals only use fully contained, known intervals. Legacy records retain gauges/peaks.
-            let validInterval=elapsed>0 && intervalStart>=range.start && !gaps.contains { gap in
+            let validInterval=elapsed.isFinite && elapsed>0 && intervalStart>=range.start && !gaps.contains { gap in
                 gap.start < f.time && (gap.end ?? .distantFuture)>intervalStart
             }
             for p in f.processes {
@@ -43,7 +47,12 @@ enum HistoryAnalysis {
                 summary.process=p;summary.lastSeen=f.time;summary.samples+=1
                 summary.peakMemory=max(summary.peakMemory,p.memory);summary.lastMemory=p.memory
                 if let cpu=p.cpu {summary.peakCPU=max(summary.peakCPU ?? cpu,cpu)}
+                if let power=p.cpuPowerWatts(elapsed:f.elapsed) {summary.peakPower=max(summary.peakPower ?? power,power)}
                 if validInterval {
+                    if let energy=p.energyNanojoules {
+                        summary.energyJoules += Double(energy)/1e9
+                        summary.energyCoveredSeconds += elapsed
+                    }
                     if let cpu=p.cpu {summary.cpuSeconds += cpu/100*elapsed;summary.cpuCoveredSeconds += elapsed}
                     if let read=p.read,let write=p.written {summary.readBytes += read;summary.writtenBytes += write;summary.ioSamples += 1}
                 }

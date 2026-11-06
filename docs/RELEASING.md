@@ -8,7 +8,7 @@ Repository secrets: BUILD_CERTIFICATE_BASE64 (Developer ID Application P12), P12
 
 ## Sparkle updates
 
-Watt embeds Sparkle 2.10.1, checks hourly when automatic checking is enabled, and offers Check for Updates and a prerelease opt-in in the popup's Updates disclosure. Stable uses appcast.xml; prerelease users use appcast-prerelease.xml, which includes both stable and prerelease builds. Both feeds, the DMG and HTML release notes are Ed25519-signed. Unsigned feeds and payloads are rejected.
+Watt embeds Sparkle 2.10.1, checks hourly when automatic checking is enabled, and offers Check for Updates and a prerelease opt-in in Preferences. Stable uses appcast.xml; prerelease users use appcast-prerelease.xml, which includes both stable and prerelease builds. Both feeds, the DMG and HTML release notes are Ed25519-signed. Unsigned feeds and payloads are rejected.
 
 SPARKLE_PRIVATE_KEY is the sixth repository secret. Its public half is in Config/Updates.plist. The Watt-specific private key is stored in the Private 1Password vault as **Watt Sparkle Signing Key**. Its Private key field contains the base64 seed; the Public key field matches the app configuration. No copy is kept in the login keychain. Do not commit exported keys. Release validation checks that the secret matches the public key embedded in the app.
 
@@ -22,4 +22,4 @@ Local checks: `swift test --disable-sandbox`; `UNIVERSAL=1 zsh scripts/build-app
 
 ## First prerelease readiness
 
-The 0.1.0 candidate includes the visual popup dashboard, configurable menu bar, SQLite process history, corrected cache-excluding memory accounting, a native app icon and Sparkle updates. CPU/SoC power and temperature collectors remain unavailable; battery flow is an electrical estimate. Per-process energy is not attributed. The app is a prerelease and recorder-only benchmarks do not establish whole-app overhead. A real older-to-newer Sparkle installation test needs two Developer ID releases; the first release establishes the baseline.
+The 0.1.0 candidate includes the visual popup dashboard, configurable menu bar, SQLite process history, corrected cache-excluding memory accounting, a native app icon and Sparkle updates. CPU/SoC power and temperature collectors remain unavailable; battery flow is an electrical estimate. Per-process CPU energy estimates are recorded where the kernel exposes them; GPU energy and Apple’s unitless Energy Impact score are not attributed. The app is a prerelease and recorder-only benchmarks do not establish whole-app overhead. A real older-to-newer Sparkle installation test needs two Developer ID releases; the first release establishes the baseline.

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>com.grahamgilbert.Watt.Energy</string>
+<key>BundleProgram</key><string>Contents/Library/HelperTools/WattEnergyHelper</string>
+<key>MachServices</key><dict><key>com.grahamgilbert.Watt.Energy</key><true/></dict>
+<key>AssociatedBundleIdentifiers</key><array><string>com.grahamgilbert.Watt</string></array>
+<key>RunAtLoad</key><false/>
+<key>KeepAlive</key><false/>
+<key>ProcessType</key><string>Background</string>
+<key>ThrottleInterval</key><integer>3</integer>
+<key>UserName</key><string>root</string>
+</dict></plist>

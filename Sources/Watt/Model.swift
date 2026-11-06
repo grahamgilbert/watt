@@ -7,6 +7,16 @@ struct ProcessRow: Identifiable, Codable {
     var pid: Int32; var parent: Int32; var start: UInt64; var name: String
     var cpu: Double?; var memory: UInt64; var growth: Int64?
     var read: UInt64?; var written: UInt64?
+    // Deltas over the frame's measured interval. Energy is kernel-attributed CPU energy only.
+    var energyNanojoules: UInt64? = nil
+    var idleWakeups: UInt64? = nil
+    var interruptWakeups: UInt64? = nil
+    var applicationID: String? = nil
+    var applicationName: String? = nil
+    func cpuPowerWatts(elapsed:Double?) -> Double? {
+        guard let energyNanojoules,let elapsed,elapsed.isFinite,elapsed>0 else {return nil}
+        return Double(energyNanojoules)/1e9/elapsed
+    }
     var id: String { "\(pid):\(start)" }
 }
 struct Frame: Codable, Identifiable {
@@ -17,15 +27,24 @@ struct Frame: Codable, Identifiable {
     var elapsed: Double? = nil
     var cadence: Double? = nil
     var memoryAccounting: String? = nil
+    var processCPUAccounting: String? = nil
     var id: Date { time }
 }
 func delta(_ value: UInt64, _ previous: UInt64) -> UInt64? { value >= previous ? value - previous : nil }
+
+// Keep availability, PID lifetime and monotonicity distinct from a measured zero delta.
+func processEnergyDelta(current:WattProcess,previous:WattProcess?) -> UInt64? {
+    guard let previous,current.pid==previous.pid,current.start==previous.start,
+          current.energy_available != 0,previous.energy_available != 0 else {return nil}
+    return delta(current.energy_nj,previous.energy_nj)
+}
 
 final class Collector {
     private(set) var failed = false
     private var previous: WattSystem?
     private var processes: [String: WattProcess] = [:]
     private var last: TimeInterval?
+    private let applicationResolver=ProcessApplicationResolver()
     func sample() -> Frame? {
         failed = false
         var system = WattSystem()
@@ -42,10 +61,16 @@ final class Collector {
             let cpu = old.flatMap { delta(p.cpu, $0.cpu) }.flatMap { value in elapsed.map { Double(value) / 1e9 / max($0, 0.001) * 100 } }
             var name = p.name
             let label = withUnsafePointer(to: &name) { ptr in ptr.withMemoryRebound(to: CChar.self, capacity: 256) { String(cString: $0) } }
+            let application=applicationResolver.identity(for:p)
             return ProcessRow(pid:p.pid,parent:p.parent,start:p.start,name:label,cpu:cpu,memory:p.footprint,
                               growth:old.map { Int64(p.footprint)-Int64($0.footprint) },
-                              read:old.flatMap { delta(p.read,$0.read) },written:old.flatMap { delta(p.written,$0.written) })
+                              read:old.flatMap { delta(p.read,$0.read) },written:old.flatMap { delta(p.written,$0.written) },
+                              energyNanojoules:processEnergyDelta(current:p,previous:old),
+                              idleWakeups:old.flatMap {delta(p.idle_wakeups,$0.idle_wakeups)},
+                              interruptWakeups:old.flatMap {delta(p.interrupt_wakeups,$0.interrupt_wakeups)},
+                              applicationID:application?.id,applicationName:application?.name)
         }
+        applicationResolver.retain(processIDs:Set(next.keys))
         var cpu = 0.0, rx = 0.0, tx = 0.0
         if let old = previous, let elapsed, elapsed > 0 {
             let active = Double(delta(system.user, old.user) ?? 0) + Double(delta(system.system, old.system) ?? 0)
@@ -57,7 +82,7 @@ final class Collector {
         previous=system; processes=next; last=now
         guard baseline else { return nil }
         return Frame(time:Date(),cpu:cpu,memory:system.memory,compressed:system.compressed,swap:system.swap,
-                     download:rx,upload:tx,processes:rows,denied:count < 0 ? -1 : Int(denied),power:PowerReading.read(),elapsed:elapsed,memoryAccounting:"app-wired-compressed")
+                     download:rx,upload:tx,processes:rows,denied:count < 0 ? -1 : Int(denied),power:PowerReading.read(),elapsed:elapsed,memoryAccounting:"app-wired-compressed",processCPUAccounting:"mach-timebase-to-nanoseconds")
     }
     func reset() { previous=nil; processes=[:]; last=nil }
 }
@@ -75,7 +100,7 @@ final class Collector {
     var visibleFrames:[Frame] {historyRange == nil ? frames : historyFrames}
     @Published var paused=false
     @Published var error:String?
-    @Published var interval=5.0
+    @Published var interval=5.0 {didSet {UserDefaults.standard.set(interval,forKey:"recording.interval")}}
     @Published var selected:Date?
     @Published var gaps:[RecordingGap]=[]
     @Published var storageBytes:Int64=0
@@ -113,6 +138,8 @@ final class Collector {
     }
     init(previewFrames:[Frame]?=nil) {
         if let previewFrames {frames=previewFrames;liveFrame=previewFrames.last;return}
+        let storedInterval=UserDefaults.standard.double(forKey:"recording.interval")
+        if [2.0,5,10].contains(storedInterval) {interval=storedInterval}
         do {
             let dir=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("Watt",isDirectory:true)
             try FileManager.default.createDirectory(at:dir,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])

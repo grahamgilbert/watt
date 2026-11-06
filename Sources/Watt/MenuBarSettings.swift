@@ -11,7 +11,22 @@ import SwiftUI
     @Published var networkNumbers:Bool {didSet{defaults.set(networkNumbers,forKey:"menu.networkNumbers")}}
     @Published var graphStyle:String {didSet{defaults.set(graphStyle,forKey:"menu.graphStyle")}}
     @Published var color:Bool {didSet{defaults.set(color,forKey:"menu.color")}}
-    init(defaults:UserDefaults = .standard) {
+    static let preferencesDomain="com.grahamgilbert.Watt"
+    static func migrateLegacyAppearance(_ legacy:[String:Any],to defaults:UserDefaults) {
+        guard !defaults.bool(forKey:"migration.prototypeAppearance") else {return}
+        for (key,value) in legacy where key.hasPrefix("menu.") {
+            if defaults.object(forKey:key) == nil {defaults.set(value,forKey:key)}
+        }
+        defaults.set(true,forKey:"migration.prototypeAppearance")
+    }
+    init(defaults suppliedDefaults:UserDefaults? = nil) {
+        let defaults:UserDefaults
+        if let suppliedDefaults {defaults=suppliedDefaults}
+        else if Bundle.main.bundleIdentifier == Self.preferencesDomain {defaults = .standard}
+        else {defaults=UserDefaults(suiteName:Self.preferencesDomain)!}
+        if suppliedDefaults == nil {
+            Self.migrateLegacyAppearance(UserDefaults.standard.persistentDomain(forName:"dev.watt.local") ?? [:],to:defaults)
+        }
         self.defaults=defaults
         let stored=defaults.double(forKey:"menu.width")
         width=[40.0,48,52,64,80].contains(stored) ? stored : 52
@@ -33,32 +48,50 @@ import SwiftUI
     }
 }
 
-struct MenuBarSettingsView:View {
+struct PreferencesView:View {
+    var viewportHeight:CGFloat=680
     @ObservedObject var settings:MenuBarSettings
     @ObservedObject var monitor:Monitor
-    var back:()->Void
+    @ObservedObject var updater:AppUpdater
+    @ObservedObject var popupLayout:PopupLayoutSettings
+    @StateObject private var layoutEditor=PopupLayoutEditorPresenter()
     var body:some View {
-        VStack(alignment:.leading,spacing:18) {
-            HStack {Button(action:back){Image(systemName:"chevron.left")};Text("Menu bar appearance").font(.title3.weight(.semibold))}
-            HStack {
-                Text("Live preview · 2×").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                MenuBarPreview(settings:settings,frames:monitor.frames).frame(width:settings.width,height:24).scaleEffect(2).frame(width:settings.width*2,height:48)
-            }.padding(.vertical,6)
-            Picker("Layout",selection:$settings.layout) {Text("Ribbon").tag("Ribbon");Text("Two-line numbers").tag("Numeric")}
-            Picker("Graphs",selection:$settings.graphStyle) {Text("Simple meters").tag("Meter");Text("History bars").tag("Bars");Text("History lines").tag("Lines")}.disabled(settings.layout == "Numeric")
-            Picker("Width",selection:$settings.width) {ForEach([40.0,48,52,64,80],id:\.self){Text("\(Int($0)) pt").tag($0).disabled($0<52 && settings.metricNumbers && settings.networkNumbers && settings.network && settings.layout == "Ribbon")}}
-            metricPicker("Upper row",$settings.primary)
-            metricPicker("Lower row",$settings.secondary)
-            Toggle("Show network direction lanes",isOn:$settings.network).disabled(settings.layout == "Numeric")
-            Toggle("Show upload/download rates",isOn:$settings.networkNumbers).disabled(!settings.network || settings.layout == "Numeric")
-            Toggle("Show CPU / memory percentages",isOn:$settings.metricNumbers).disabled(settings.layout == "Numeric")
-            Toggle("Use color",isOn:$settings.color)
-            Text("Changes apply immediately and persist across launches. Memory shows estimated used RAM. Network graphs use a logarithmic scale; battery graphs span 0–30 W. Unsupported readings use a dash.").font(.caption).foregroundStyle(.secondary)
-            Text("GPU and temperature channels will become available with their collectors.").font(.caption).foregroundStyle(.secondary)
-            Text("Network overlay: ↓ download, ↑ upload. K/M/G mean KiB/s, MiB/s and GiB/s. Values update at the recording cadence.").font(.caption).foregroundStyle(.secondary)
-            Text("Numbers keep a steady color, with graphs beneath them. Hide values for full-height graphs. C identifies CPU and M identifies memory; both show percentages. Color uses mint for CPU and purple for memory. All three numeric channels require at least 52 pt; 64 pt gives the graphs more room.").font(.caption).foregroundStyle(.secondary)
-        }.padding(22).frame(width:380)
+        Form {
+            Section("General") {
+                Picker("Sample interval",selection:$monitor.interval) {
+                    Text("2 seconds").tag(2.0);Text("5 seconds").tag(5.0);Text("10 seconds").tag(10.0)
+                }
+                Text("Shorter intervals capture more detail and use more storage.").font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Menu bar appearance") {
+                HStack {
+                    Text("Live preview · 2×").foregroundStyle(.secondary)
+                    Spacer()
+                    MenuBarPreview(settings:settings,frames:monitor.frames).frame(width:settings.width,height:24).scaleEffect(2).frame(width:settings.width*2,height:48)
+                }.padding(.vertical,4)
+                Picker("Layout",selection:$settings.layout) {Text("Ribbon").tag("Ribbon");Text("Two-line numbers").tag("Numeric")}
+                Picker("Graphs",selection:$settings.graphStyle) {Text("Simple meters").tag("Meter");Text("History bars").tag("Bars");Text("History lines").tag("Lines")}.disabled(settings.layout == "Numeric")
+                Picker("Width",selection:$settings.width) {ForEach([40.0,48,52,64,80],id:\.self){Text("\(Int($0)) pt").tag($0).disabled($0<52 && settings.metricNumbers && settings.networkNumbers && settings.network && settings.layout == "Ribbon")}}
+                metricPicker("Upper row",$settings.primary)
+                metricPicker("Lower row",$settings.secondary)
+                Toggle("Network lanes",isOn:$settings.network).disabled(settings.layout == "Numeric")
+                Toggle("Upload / download rates",isOn:$settings.networkNumbers).disabled(!settings.network || settings.layout == "Numeric")
+                Toggle("CPU / memory percentages",isOn:$settings.metricNumbers).disabled(settings.layout == "Numeric")
+                Toggle("Color",isOn:$settings.color)
+                Text("C = CPU, M = memory. Used RAM excludes reclaimable cache. K/M/G mean KiB/s, MiB/s and GiB/s.").font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Popup layout") {
+                HStack {
+                    VStack(alignment:.leading,spacing:4) {
+                        Text("\(popupLayout.visibleEntries.count) tiles · \(popupLayout.columnCount) columns")
+                        Text("Reorder, show or hide tiles, and choose their width.").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Edit layout…") {layoutEditor.show(layout:popupLayout,monitor:monitor)}
+                }
+            }
+            Section("Updates") {UpdateControls(updater:updater)}
+        }.formStyle(.grouped).frame(width:520,height:viewportHeight)
         .onChange(of:settings.metricNumbers) {_,_ in enforceReadableWidth()}
         .onChange(of:settings.networkNumbers) {_,_ in enforceReadableWidth()}
         .onChange(of:settings.network) {_,_ in enforceReadableWidth()}
