@@ -1,0 +1,34 @@
+{
+  "absolute_limits": {
+    "cpu_ms_per_update": 500.0,
+    "peak_resident_bytes": 536870912.0,
+    "resident_bytes": 419430400.0
+  },
+  "baseline_median": {
+    "cpu_ms_per_update": 100.35583333333335,
+    "peak_resident_bytes": 180584448,
+    "resident_bytes": 180584448
+  },
+  "baseline_source": "8922220 (v0.1.1), instrumented with the identical candidate harness",
+  "candidate_median": {
+    "cpu_ms_per_update": 84.84275000000001,
+    "peak_resident_bytes": 178044928,
+    "resident_bytes": 178044928
+  },
+  "candidate_source": "working tree performance fixes, November 6, 2026",
+  "failures": [],
+  "measured_runs_per_revision": 3,
+  "passed": true,
+  "platform": "Local Apple Silicon Mac; GitHub Intel validation is separate",
+  "relative_limits": {
+    "cpu_ms_per_update": 122.42700000000002,
+    "peak_resident_bytes": 216060723.2,
+    "resident_bytes": 216060723.2
+  },
+  "scope": "Offscreen Explorer render workload only; does not establish total background overhead or battery savings.",
+  "workload": {
+    "frame_count": 120,
+    "process_count": 800,
+    "updates": 12
+  }
+}

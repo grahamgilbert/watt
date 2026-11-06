@@ -66,6 +66,16 @@ final class EnergyImpactParserTests:XCTestCase {
         XCTAssertNil(value.task(forPID:42,processStart:processStart,at:end.addingTimeInterval(6)))
         XCTAssertNil(value.task(forPID:43,processStart:processStart,at:end))
     }
+    func testDecodedCaptureRebuildsLookupWithoutChangingPersistedSchema() throws {
+        let original=sample()
+        let encoded=try JSONEncoder().encode(original)
+        let object=try XCTUnwrap(JSONSerialization.jsonObject(with:encoded) as? [String:Any])
+        XCTAssertEqual(Set(object.keys),["id","startedAt","endedAt","tasks"])
+        let decoded=try JSONDecoder().decode(EnergyImpactSample.self,from:encoded)
+        XCTAssertEqual(decoded.task(forPID:42,processStart:start.addingTimeInterval(-100),at:end)?.energyImpactPerSecond,1.5)
+        XCTAssertNil(decoded.task(forPID:42,processStart:start.addingTimeInterval(-99),at:end))
+        XCTAssertNil(decoded.task(forPID:43,processStart:start.addingTimeInterval(-100),at:end))
+    }
     func testCacheBoundsAgeAndClearsInvalidMeasurements() {
         let cache=EnergyImpactCache();cache.store(sample())
         XCTAssertNotNil(cache.latest(maxAge:5,now:end.addingTimeInterval(5)))
