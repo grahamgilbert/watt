@@ -59,7 +59,11 @@ import WattEnergyProtocol
             host.layoutSubtreeIfNeeded()
             RunLoop.current.run(until:Date().addingTimeInterval(0.05))
             host.layoutSubtreeIfNeeded()
-            if let bitmap=host.bitmapImageRepForCachingDisplay(in:host.bounds) {host.cacheDisplay(in:host.bounds,to:bitmap)}
+            guard let bitmap=host.bitmapImageRepForCachingDisplay(in:host.bounds) else {
+                fputs("UI benchmark failed: could not allocate the rasterization bitmap.\n",stderr)
+                exit(1)
+            }
+            host.cacheDisplay(in:host.bounds,to:bitmap)
         }
     }
     update(120);update(121)
