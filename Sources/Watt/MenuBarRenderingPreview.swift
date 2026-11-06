@@ -64,7 +64,7 @@ import SwiftUI
     }
     let model=Monitor(previewFrames:frames)
     NSAppearance(named:.darkAqua)!.performAsCurrentDrawingAppearance {
-        let content=LiveView(monitor:model,open:{},configure:{}).environment(\.colorScheme,.dark).background(Color(red:0.17,green:0.16,blue:0.18))
+        let content=LiveView(monitor:model,open:{},configure:{},updater:AppUpdater(startingUpdater:false)).environment(\.colorScheme,.dark).background(Color(red:0.17,green:0.16,blue:0.18))
         let renderer=ImageRenderer(content:content);renderer.scale=2
         guard let image=renderer.nsImage,let tiff=image.tiffRepresentation,let bitmap=NSBitmapImageRep(data:tiff),let png=bitmap.representation(using:.png,properties:[:]) else {fputs("Popup preview could not be rendered\n",stderr);exit(1)}
         do {try png.write(to:URL(fileURLWithPath:path))} catch {fputs("Popup preview failed: \(error)\n",stderr);exit(1)}

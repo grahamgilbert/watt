@@ -19,6 +19,8 @@ jobs:
         run: swift --version
       - name: Unit tests
         run: swift test --disable-sandbox
+      - name: Update feed and signing tests
+        run: python3 -m unittest discover -s Tests/Releases -v
       - name: Universal release build
         env:
           UNIVERSAL: '1'

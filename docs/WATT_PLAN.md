@@ -429,3 +429,7 @@ CPU and memory numeric rows are left-aligned to a fixed origin so one-, two-, an
 Use paired CPU and memory percentage area charts, separate download and upload traces with a shared scale, and a battery-flow magnitude trace. Keep current values above the graphs and concise supporting values below. Preserve recording gaps in every trace. Three busiest processes use horizontal activity bars, with full detail in Process Explorer. Battery flow remains explicitly an estimate and is not total AC consumption.
 
 ![Popup dashboard with illustrative samples](design/watt-popup-dashboard.png)
+
+Memory accounting correction: used RAM excludes file-backed cache and purgeable anonymous pages, using anonymous minus purgeable + wired + physical compressor pages. New samples carry memoryAccounting=app-wired-compressed; older snapshots retain their original cached-memory-inclusive VM estimate and are not rewritten.
+
+Sparkle distribution: signed stable/prerelease feeds, hourly automatic checks, manual checks and prerelease opt-in in a collapsed popup Updates section. Release jobs verify the embedded public key, sign nested Sparkle helpers before the app, notarize the payload, sign notes and feeds, and publish universal DMGs. Stable promotion preserves the original payload signature.

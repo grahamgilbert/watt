@@ -110,6 +110,7 @@ struct LiveView:View {
     @ObservedObject var monitor:Monitor
     var open:()->Void
     var configure:()->Void
+    @ObservedObject var updater:AppUpdater
     var body:some View {
         VStack(alignment:.leading,spacing:18) {
             HStack {Text("Watt").font(.title2.weight(.semibold));Spacer();Text(monitor.paused ? "Paused" : "Recording").font(.caption).foregroundStyle(.secondary)}
@@ -136,6 +137,9 @@ struct LiveView:View {
                     Spacer()
                     Button {NSApp.terminate(nil)} label: {Label("Quit",systemImage:"power")}
                 }.buttonStyle(.plain).font(.system(size:11,weight:.medium)).foregroundStyle(.secondary).padding(.horizontal,3).padding(.vertical,2)
+                DisclosureGroup("Updates") {
+                    UpdateControls(updater:updater).padding(.top,6)
+                }.font(.system(size:11)).foregroundStyle(.secondary)
                 HStack {
                     Text("Sample every").font(.system(size:11)).foregroundStyle(.secondary)
                     Spacer()
@@ -157,6 +161,7 @@ struct LiveView:View {
 
 @MainActor final class AppDelegate:NSObject,NSApplicationDelegate,NSWindowDelegate,NSPopoverDelegate {
     let menuSettings=MenuBarSettings()
+    lazy var updater=AppUpdater()
     var ribbon:Ribbon?
     var appearanceSubscription:AnyCancellable?
     let monitor=Monitor();var item:NSStatusItem!;let popover=NSPopover();var window:NSWindow?;var subscription:AnyCancellable?
@@ -171,11 +176,12 @@ struct LiveView:View {
         installDismissalMonitors()
         popover.delegate=self
         popover.behavior = .transient
+        _ = updater
         showLiveContent()
         showExplorer()
     }
     private func showLiveContent() {
-        popover.contentViewController=NSHostingController(rootView:LiveView(monitor:monitor,open:{[weak self] in self?.showExplorer()},configure:{[weak self] in self?.showAppearance()}))
+        popover.contentViewController=NSHostingController(rootView:LiveView(monitor:monitor,open:{[weak self] in self?.showExplorer()},configure:{[weak self] in self?.showAppearance()},updater:updater))
     }
     private func showAppearance() {
         window?.orderOut(nil)
@@ -235,7 +241,7 @@ struct LiveView:View {
 
 if CommandLine.arguments.contains("--smoke-test") {
     let collector=Collector();_ = collector.sample();Thread.sleep(forTimeInterval:1)
-    if let frame=collector.sample() {print("CPU \(frame.cpu), processes \(frame.processes.count), unavailable \(frame.denied), battery \(frame.power?.formatted ?? "unavailable")");exit(frame.processes.isEmpty ? 1 : 0)}
+    if let frame=collector.sample() {print("CPU \(frame.cpu), memory \(bytes(frame.memory)), processes \(frame.processes.count), unavailable \(frame.denied), battery \(frame.power?.formatted ?? "unavailable")");exit(frame.processes.isEmpty ? 1 : 0)}
     exit(1)
 }
 if let index=CommandLine.arguments.firstIndex(of:"--render-popup-preview"),CommandLine.arguments.count>index+1 {MainActor.assumeIsolated {renderPopupPreview(to:CommandLine.arguments[index+1])};exit(0)}

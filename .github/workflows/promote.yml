@@ -1,0 +1,35 @@
+name: Promote to Stable
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing prerelease version (for example 0.1.0)
+        required: true
+        type: string
+permissions:
+  contents: write
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  promote:
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-15-intel
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve Sparkle signing tools
+        run: swift package resolve
+      - name: Promote and sign stable feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          PROMOTE_VERSION: ${{ inputs.version }}
+        run: bash scripts/ci-publish-update.sh promote "$PROMOTE_VERSION"
+      - name: Remove signing credentials
+        if: always()
+        run: bash scripts/ci-cleanup-signing.sh

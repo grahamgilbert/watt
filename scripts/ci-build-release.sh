@@ -19,6 +19,7 @@ app="$PWD/dist/Watt.app"
 zsh scripts/build-app.sh release
 architectures=$(lipo -archs "$app/Contents/MacOS/Watt")
 [[ " $architectures " == *" arm64 "* && " $architectures " == *" x86_64 "* ]] || { echo "Release must contain both architectures" >&2; exit 1; }
+python3 scripts/nested_signing.py "$app/Contents/Frameworks/Sparkle.framework" "$WATT_SIGNING_IDENTITY" "$WATT_KEYCHAIN"
 codesign --force --options runtime --timestamp --keychain "$WATT_KEYCHAIN" --sign "$WATT_SIGNING_IDENTITY" "$app"
 codesign --verify --deep --strict "$app"
 codesign -dv --verbose=4 "$app" 2> "$RUNNER_TEMP/watt-signature.txt"
