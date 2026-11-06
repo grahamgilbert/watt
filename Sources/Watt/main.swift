@@ -145,15 +145,22 @@ struct LiveView:View {
 }
 
 @MainActor final class AppDelegate:NSObject,NSApplicationDelegate,NSWindowDelegate,NSPopoverDelegate {
-    let menuSettings=MenuBarSettings()
-    let popupLayout=PopupLayoutSettings()
+    let menuSettings:MenuBarSettings
+    let popupLayout:PopupLayoutSettings
+    private let explorerControls=ProcessExplorerControls()
+    private let layoutPresenter=PopupLayoutEditorPresenter()
     lazy var updater=AppUpdater()
     let energyCollector=EnergyImpactCollector()
     private var energyIntervalSubscription:AnyCancellable?
     private var energySleepObservers:[NSObjectProtocol]=[]
     var ribbon:Ribbon?
     var appearanceSubscription:AnyCancellable?
-    let monitor=Monitor();var item:NSStatusItem!;let popover=NSPopover();var window:NSWindow?;var preferencesWindow:NSWindow?;var subscription:AnyCancellable?
+    let monitor:Monitor
+    init(monitor:Monitor?=nil,menuSettings:MenuBarSettings?=nil,popupLayout:PopupLayoutSettings?=nil) {
+        self.monitor=monitor ?? Monitor();self.menuSettings=menuSettings ?? MenuBarSettings();self.popupLayout=popupLayout ?? PopupLayoutSettings()
+        super.init()
+    }
+    var item:NSStatusItem!;let popover=NSPopover();var window:NSWindow?;var preferencesWindow:NSWindow?;var subscription:AnyCancellable?
     func applicationDidFinishLaunching(_ notification:Notification) {
         NSApp.setActivationPolicy(.accessory)
         let mainMenu=NSMenu()
@@ -172,7 +179,13 @@ struct LiveView:View {
         let ribbon=Ribbon(frame:NSRect(x:0,y:0,width:menuSettings.width,height:24));self.ribbon=ribbon;ribbon.settings=menuSettings;item.button?.addSubview(ribbon)
         appearanceSubscription=menuSettings.objectWillChange.sink { [weak self] in DispatchQueue.main.async {guard let self else{return};self.item.length=self.menuSettings.width;self.ribbon?.frame.size.width=self.menuSettings.width;self.ribbon?.needsDisplay=true} }
         ribbon.action={ [weak self] in self?.toggle() }
-        subscription=monitor.$frames.sink {frames in ribbon.frames=frames; ribbon.toolTip=frames.last.map {"CPU \(Int($0.cpu))% · Memory \(bytes($0.memory)) · ↓ \(bytes(UInt64($0.download)))/s ↑ \(bytes(UInt64($0.upload)))/s · Click to inspect"} ?? "Watt is collecting";ribbon.setAccessibilityLabel(ribbon.toolTip)}
+        subscription=monitor.$liveFrame.sink { [weak ribbon] frame in
+            guard let ribbon,let frame else {return}
+            var gauge=frame;gauge.processes=[];gauge.energyImpact=nil
+            ribbon.frames=Array((ribbon.frames+[gauge]).suffix(36))
+            ribbon.toolTip="CPU \(Int(frame.cpu))% · Memory \(bytes(frame.memory)) · ↓ \(bytes(UInt64(frame.download)))/s ↑ \(bytes(UInt64(frame.upload)))/s · Click to inspect"
+            ribbon.setAccessibilityLabel(ribbon.toolTip)
+        }
         installDismissalMonitors()
         popover.delegate=self
         popover.behavior = .transient
@@ -187,8 +200,8 @@ struct LiveView:View {
         energySleepObservers.append(workspace.addObserver(forName:NSWorkspace.didWakeNotification,object:nil,queue:.main) { [weak self] _ in
             MainActor.assumeIsolated {guard let self else {return};self.energyCollector.start(interval:self.monitor.interval)}
         })
-        showLiveContent()
-        showExplorer()
+        publishWindowState()
+        // Launch as a menu bar recorder. Build expensive views only while shown.
     }
     private func showLiveContent() {
         popover.contentViewController=NSHostingController(rootView:LiveView(monitor:monitor,open:{[weak self] in self?.showExplorer()},configure:{[weak self] in self?.showPreferences()},layout:popupLayout))
@@ -198,9 +211,12 @@ struct LiveView:View {
         if preferencesWindow == nil {
             let preferences=NSWindow(contentRect:NSRect(x:0,y:0,width:520,height:680),styleMask:[.titled,.closable],backing:.buffered,defer:false)
             preferences.title="Watt Preferences"
-            preferences.contentView=NSHostingView(rootView:PreferencesView(settings:menuSettings,monitor:monitor,updater:updater,popupLayout:popupLayout,energyCollector:energyCollector))
+            preferences.delegate=self;preferences.contentView=nil
             preferences.isReleasedWhenClosed=false
             preferences.center();preferencesWindow=preferences
+        }
+        if preferencesWindow?.contentView == nil {
+            preferencesWindow?.contentView=NSHostingView(rootView:PreferencesView(settings:menuSettings,monitor:monitor,updater:updater,popupLayout:popupLayout,energyCollector:energyCollector,layoutPresenter:layoutPresenter))
         }
         NSApp.activate();preferencesWindow?.makeKeyAndOrderFront(nil)
     }
@@ -208,7 +224,7 @@ struct LiveView:View {
     private var localMonitor:Any?
     private func dismissSurfaces() {
         if popover.isShown { popover.performClose(nil) }
-        window?.orderOut(nil)
+        hideExplorer()
         publishWindowState()
     }
     private func installDismissalMonitors() {
@@ -223,7 +239,7 @@ struct LiveView:View {
             let isExplorer=event.window === self.window
             if event.window == nil {self.dismissSurfaces()}
             else if isExplorer && self.popover.isShown {self.popover.performClose(nil)}
-            else if isPopover && !isStatus {self.window?.orderOut(nil)}
+            else if isPopover && !isStatus {self.hideExplorer()}
             return event
         }
     }
@@ -239,13 +255,28 @@ struct LiveView:View {
         if let localMonitor {NSEvent.removeMonitor(localMonitor)}
     }
     func applicationShouldHandleReopen(_ sender:NSApplication,hasVisibleWindows flag:Bool) -> Bool {showExplorer();return true}
-    func windowDidResignKey(_ notification:Notification) { window?.orderOut(nil);publishWindowState() }
+    private func hideExplorer() {
+        window?.orderOut(nil)
+        window?.contentView=nil
+        explorerControls.releaseDerivedData()
+        monitor.releaseHistoryDetails()
+    }
+    func windowDidResignKey(_ notification:Notification) {
+        guard let changed=notification.object as? NSWindow,changed === window else {return}
+        hideExplorer();publishWindowState()
+    }
+    func windowWillClose(_ notification:Notification) {
+        guard let changed=notification.object as? NSWindow else {return}
+        if changed === window {hideExplorer()}
+        else if changed === preferencesWindow {changed.contentView=nil}
+    }
     func popoverDidShow(_ notification:Notification) {publishWindowState()}
-    func popoverDidClose(_ notification:Notification) {publishWindowState()}
+    func popoverDidClose(_ notification:Notification) {popover.contentViewController=nil;publishWindowState()}
     private func publishWindowState() {
         #if DEBUG
+        guard item != nil else {return}
         // Development-only visibility probe for real outside-click checks. No input events are logged.
-        let state:[String:Any] = ["menuColor":menuSettings.color,"paused":monitor.paused,"preferencesVisible":preferencesWindow?.isVisible ?? false,"explorerVisible":window?.isVisible ?? false,"popoverVisible":popover.isShown,"statusWidth":item.length,"appActive":NSApp.isActive,"keyWindow":window?.isKeyWindow ?? false,"globalMonitorInstalled":outsideMonitor != nil,"localMonitorInstalled":localMonitor != nil,"updatedAt":Date().timeIntervalSince1970]
+        let state:[String:Any] = ["popupContentAttached":popover.contentViewController != nil,"explorerContentAttached":window?.contentView != nil,"preferencesContentAttached":preferencesWindow?.contentView != nil,"liveFrameCount":monitor.frames.count,"liveProcessRows":monitor.frames.reduce(0) {$0+$1.processes.count},"menuColor":menuSettings.color,"paused":monitor.paused,"preferencesVisible":preferencesWindow?.isVisible ?? false,"explorerVisible":window?.isVisible ?? false,"popoverVisible":popover.isShown,"statusWidth":item?.length ?? 0,"appActive":NSApp.isActive,"keyWindow":window?.isKeyWindow ?? false,"globalMonitorInstalled":outsideMonitor != nil,"localMonitorInstalled":localMonitor != nil,"updatedAt":Date().timeIntervalSince1970]
         let path=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("Watt/window-state.json")
         if let data=try? JSONSerialization.data(withJSONObject:state,options:.sortedKeys) {try? data.write(to:path,options:.atomic)}
         #endif
@@ -254,13 +285,18 @@ struct LiveView:View {
     func toggle() {if popover.isShown{popover.performClose(nil)}else if let button=item.button{showLiveContent();NSApp.activate();popover.show(relativeTo:button.bounds,of:button,preferredEdge:.minY);popover.contentViewController?.view.window?.makeKey()}}
     func showExplorer() {
         popover.performClose(nil)
-        if window==nil {let w=NSWindow(contentRect:NSRect(x:0,y:0,width:1440,height:900),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false);w.title="Watt · Process Explorer";w.delegate=self;w.contentView=NSHostingView(rootView:ProcessExplorerView(monitor:monitor));w.isReleasedWhenClosed=false;w.center();window=w}
+        if window==nil {explorerControls.center=(monitor.liveFrame?.time ?? monitor.historyBounds?.end ?? Date()).addingTimeInterval(-explorerControls.duration/2);let w=NSWindow(contentRect:NSRect(x:0,y:0,width:1440,height:900),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false);w.title="Watt · Process Explorer";w.delegate=self;w.contentView=nil;w.isReleasedWhenClosed=false;w.center();window=w}
+        monitor.restoreHistoryDetailsIfNeeded()
         window?.title="Watt · Process Explorer"
-        window?.contentView=NSHostingView(rootView:ProcessExplorerView(monitor:monitor))
+        if window?.contentView == nil {window?.contentView=NSHostingView(rootView:ProcessExplorerView(monitor:monitor,controls:explorerControls))}
         NSApp.activate();DispatchQueue.main.async { [weak self] in self?.window?.makeKeyAndOrderFront(nil);self?.publishWindowState() }
     }
 }
 
+if CommandLine.arguments.contains("--benchmark-ui") {
+    MainActor.assumeIsolated {runUIPerformanceBenchmark()}
+    exit(0)
+}
 if CommandLine.arguments.contains("--diagnose-settings") {
     MainActor.assumeIsolated {
         let settings=MenuBarSettings()

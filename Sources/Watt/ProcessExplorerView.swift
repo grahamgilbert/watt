@@ -1,5 +1,4 @@
 import SwiftUI
-import Charts
 import WattEnergyProtocol
 
 final class ProcessExplorerControls:ObservableObject {
@@ -14,10 +13,15 @@ final class ProcessExplorerControls:ObservableObject {
     @Published var applicationSelection:String?
     @Published var applicationSummaries:[AppEnergySummary]=[]
     @Published var impactSummaries:[String:ExplorerImpactSummary]=[:]
+    let snapshotCache=ExplorerSnapshotCache()
+    func releaseDerivedData() {
+        snapshotCache.clear();applicationSummaries=[];impactSummaries=[:]
+    }
 }
 
 struct ProcessExplorerView:View {
     @ObservedObject var monitor:Monitor
+    @StateObject private var traceCache=ExplorerTraceCache()
     @ObservedObject private var controls:ProcessExplorerControls
     private let initializeControls:Bool
     init(monitor:Monitor,controls:ProcessExplorerControls?=nil) {
@@ -65,11 +69,13 @@ struct ProcessExplorerView:View {
         guard applicationsMode,summaryMode else {return}
         controls.applicationSummaries=AppPowerGrouping.summarize(displayFrames,range:range,gaps:monitor.visibleGaps)
     }
+    private var snapshot:ExplorerSnapshotData {controls.snapshotCache.data(frame:monitor.current,includeDepths:controls.tree)}
     private var processes:[ProcessRow] {
         let all=(monitor.current?.processes ?? []).filter {matches($0)}
+        let impactScores=controls.sort=="Energy Impact" ? snapshot.impactScores : [:]
         let sorted=all.sorted {
             switch controls.sort {
-            case "Energy Impact":return (explorerImpact($0,frame:monitor.current) ?? -1)>(explorerImpact($1,frame:monitor.current) ?? -1)
+            case "Energy Impact":return (impactScores[$0.id] ?? -1)>(impactScores[$1.id] ?? -1)
             case "CPU energy":return ($0.cpuPowerWatts(elapsed:monitor.current?.elapsed) ?? -1)>($1.cpuPowerWatts(elapsed:monitor.current?.elapsed) ?? -1)
             case "Memory":return $0.memory>$1.memory
             case "Disk read":return ($0.read ?? 0)>($1.read ?? 0)
@@ -79,7 +85,8 @@ struct ProcessExplorerView:View {
         }
         guard controls.tree else {return sorted}
         let pids=Set(all.map(\.pid));var result:[ProcessRow]=[];var seen=Set<String>()
-        func append(_ row:ProcessRow) {guard seen.insert(row.id).inserted else {return};result.append(row);for child in sorted where child.parent==row.pid {append(child)}}
+        let children=Dictionary(grouping:sorted,by:\.parent)
+        func append(_ row:ProcessRow) {guard seen.insert(row.id).inserted else {return};result.append(row);for child in children[row.pid] ?? [] {append(child)}}
         for row in sorted where !pids.contains(row.parent) {append(row)}
         for row in sorted {append(row)}
         return result
@@ -99,10 +106,7 @@ struct ProcessExplorerView:View {
     private func matches(_ process:ProcessRow)->Bool {controls.search.isEmpty || process.name.localizedCaseInsensitiveContains(controls.search) || String(process.pid).contains(controls.search)}
     private func depth(_ row:ProcessRow)->Int {
         guard controls.tree else {return 0}
-        let map=Dictionary((monitor.current?.processes ?? []).map {($0.pid,$0)},uniquingKeysWith:{$1})
-        var pid=row.parent,seen=Set<Int32>(),count=0
-        while let parent=map[pid],seen.insert(pid).inserted,count<8 {count+=1;pid=parent.parent}
-        return count
+        return snapshot.depths[row.id] ?? 0
     }
     private func load() {monitor.loadHistory(center:controls.center,duration:controls.duration);controls.mode="Interval summary"}
     private func moveWindow(_ direction:Double) {controls.center=controls.center.addingTimeInterval(controls.duration*direction);load()}
@@ -189,9 +193,9 @@ struct ProcessExplorerView:View {
     }
     private var systemTracks:some View {
         VStack(spacing:0) {
-            ExplorerSystemTrack(title:"CPU",value:monitor.current.map {String(format:"%.0f%%",$0.cpu)} ?? "—",subtitle:"Machine capacity · 0–100%",metric:"CPU",color:ExplorerPalette.cpu,frames:displayFrames,range:range,cursor:cursor,gaps:monitor.visibleGaps,onSelect:selectTime)
-            ExplorerSystemTrack(title:"Memory",value:monitor.current.map {"\(bytes($0.memory)) / \(bytes(ProcessInfo.processInfo.physicalMemory))"} ?? "—",subtitle:monitor.current.map {$0.memoryAccounting == nil ? "Legacy VM estimate" : "Used RAM · reclaimable cache excluded"} ?? "No sample at cursor",metric:"Memory",color:ExplorerPalette.memory,frames:displayFrames,range:range,cursor:cursor,gaps:monitor.visibleGaps,onSelect:selectTime)
-            ExplorerSystemTrack(title:"Disk I/O",value:systemDiskText,subtitle:"Observed processes · read / write",metric:"Disk",color:ExplorerPalette.disk,frames:displayFrames,range:range,cursor:cursor,gaps:monitor.visibleGaps,onSelect:selectTime)
+            ExplorerSystemTrack(title:"CPU",value:monitor.current.map {String(format:"%.0f%%",$0.cpu)} ?? "—",subtitle:"Machine capacity · 0–100%",metric:"CPU",color:ExplorerPalette.cpu,frames:displayFrames,range:range,cursor:cursor,gaps:monitor.visibleGaps,traceCache:traceCache,onSelect:selectTime)
+            ExplorerSystemTrack(title:"Memory",value:monitor.current.map {"\(bytes($0.memory)) / \(bytes(ProcessInfo.processInfo.physicalMemory))"} ?? "—",subtitle:monitor.current.map {$0.memoryAccounting == nil ? "Legacy VM estimate" : "Used RAM · reclaimable cache excluded"} ?? "No sample at cursor",metric:"Memory",color:ExplorerPalette.memory,frames:displayFrames,range:range,cursor:cursor,gaps:monitor.visibleGaps,traceCache:traceCache,onSelect:selectTime)
+            ExplorerSystemTrack(title:"Disk I/O",value:systemDiskText,subtitle:"Observed processes · read / write",metric:"Disk",color:ExplorerPalette.disk,frames:displayFrames,range:range,cursor:cursor,gaps:monitor.visibleGaps,traceCache:traceCache,onSelect:selectTime)
         }.padding(.horizontal,20).padding(.bottom,10)
     }
     private var systemDiskText:String {
@@ -244,7 +248,7 @@ struct ProcessExplorerView:View {
                 HStack(spacing:12) {
                     Text(metric=="Memory" ? "Physical footprint · MiB" : metric=="Energy" ? "CPU power · W est." : metric=="Disk" ? "Disk read / write · MiB/s" : "CPU · one-core %")
                         .font(.system(size:9)).foregroundStyle(metric=="Memory" ? ExplorerPalette.memory : metric=="Energy" ? ExplorerPalette.energy : metric=="Disk" ? ExplorerPalette.disk : ExplorerPalette.cpu).frame(width:155,alignment:.leading)
-                    ExplorerTrace(frames:displayFrames,range:range,cursor:cursor,processID:identity.id,metric:metric,gaps:monitor.visibleGaps,showXAxis:false).frame(height:25)
+                    ExplorerTrace(frames:displayFrames,range:range,cursor:cursor,processID:identity.id,metric:metric,gaps:monitor.visibleGaps,showXAxis:false,traceCache:traceCache).frame(height:25)
                 }
             }
         }.padding(.horizontal,16).padding(.top,10).padding(.bottom,8).background(.primary.opacity(0.018))
@@ -275,7 +279,7 @@ struct ProcessExplorerView:View {
             TableColumn("PID") {Text(String($0.pid))}.width(52)
             TableColumn("Parent") {Text(String($0.parent))}.width(52)
             TableColumn("CPU %") {Text($0.cpu.map {String(format:"%.1f",$0)} ?? "—").foregroundStyle(ExplorerPalette.cpu).help(monitor.current?.processCPUAccounting == nil ? "Legacy recorded CPU values use the prototype scaling and can be underreported." : "CPU 100% equals one core. Native Mach CPU time has been converted to nanoseconds.")}.width(70)
-            TableColumn("Energy Impact") {Text(explorerImpactText(explorerImpact($0,frame:monitor.current))).foregroundStyle(ExplorerPalette.energy).help("Apple powermetrics unitless energy_impact_per_s score. Not watts; unavailable or stale captures show a dash.")}.width(105)
+            TableColumn("Energy Impact") {Text(explorerImpactText(snapshot.impactScores[$0.id])).foregroundStyle(ExplorerPalette.energy).help("Apple powermetrics unitless energy_impact_per_s score. Not watts; unavailable or stale captures show a dash.")}.width(105)
             TableColumn("CPU W est.") {Text(explorerPower($0.cpuPowerWatts(elapsed:monitor.current?.elapsed)))}.width(85)
             TableColumn("Footprint") {Text(bytes($0.memory))}.width(100)
             TableColumn("Δ memory") {p in Text(explorerDelta(p.growth))}.width(95)
@@ -313,6 +317,7 @@ private struct ExplorerSystemTrack:View {
     let range:DateInterval
     let cursor:Date?
     let gaps:[RecordingGap]
+    let traceCache:ExplorerTraceCache
     let onSelect:(Date)->Void
     var body:some View {
         HStack(spacing:16) {
@@ -320,17 +325,25 @@ private struct ExplorerSystemTrack:View {
                 HStack(spacing:10) {Text(title).fontWeight(.semibold).foregroundStyle(color);Text(value).monospacedDigit()}.font(.system(size:11))
                 Text(subtitle).font(.system(size:9)).foregroundStyle(.secondary).lineLimit(1)
             }.frame(width:255,alignment:.leading)
-            ExplorerTrace(frames:frames,range:range,cursor:cursor,processID:nil,metric:metric,gaps:gaps,showXAxis:metric=="Disk")
+            ExplorerTrace(frames:frames,range:range,cursor:cursor,processID:nil,metric:metric,gaps:gaps,showXAxis:metric=="Disk",traceCache:traceCache)
                 .frame(height:metric=="Disk" ? 61 : 42)
-                .chartOverlay {proxy in
+                .overlay {
                     GeometryReader {geometry in
                         Rectangle().fill(.clear).contentShape(Rectangle()).gesture(DragGesture(minimumDistance:0).onChanged {event in
-                            guard let plot=proxy.plotFrame else {return}
-                            let x=min(max(0,event.location.x-geometry[plot].origin.x),geometry[plot].width)
-                            if let date:Date=proxy.value(atX:x),range.contains(date) {onSelect(date)}
+                            if let date=ExplorerTimelinePosition.time(atX:event.location.x,width:geometry.size.width,range:range) {onSelect(date)}
                         })
                     }
                 }.accessibilityLabel("\(title) timeline")
+                .accessibilityValue(cursor.map {$0.formatted(date:.abbreviated,time:.standard)} ?? "No selected time")
+                .accessibilityAdjustableAction {direction in
+                    let step=max(1,frames.last?.cadence ?? frames.last?.elapsed ?? 5)
+                    let date=cursor ?? range.end
+                    switch direction {
+                    case .increment:onSelect(min(range.end,date.addingTimeInterval(step)))
+                    case .decrement:onSelect(max(range.start,date.addingTimeInterval(-step)))
+                    @unknown default:break
+                    }
+                }
         }.padding(.vertical,6).overlay(alignment:.bottom) {if metric != "Disk" {Divider().opacity(0.5)}}
     }
 }
@@ -422,12 +435,118 @@ private struct ProcessInspector:View {
     }
 }
 
-private struct ExplorerPoint:Identifiable {
+struct ExplorerPoint:Identifiable {
     let time:Date
     let value:Double
     let series:String
     let channel:String
     var id:String {"\(time.timeIntervalSince1970)-\(series)"}
+}
+
+// Frame timestamps identify immutable recorded snapshots. Keep derived chart values
+// separate from the moving cursor so dragging never scans the process inventory.
+struct ExplorerTraceData {
+    var points:[ExplorerPoint]=[]
+    var domain:ClosedRange<Double>=0...1
+}
+final class ExplorerTraceCache:ObservableObject {
+    private struct GapKey:Equatable {let id:String;let start:Date;let end:Date?}
+    private var frameTimes:[Date]=[]
+    private var gapKeys:[GapKey]=[]
+    private var system:[String:ExplorerTraceData]?
+    private var selected:(id:String,data:[String:ExplorerTraceData])?
+    private(set) var preparationCount=0
+    func data(frames:[Frame],gaps:[RecordingGap],processID:String?,metric:String)->ExplorerTraceData {
+        let times=frames.map(\.time),keys=gaps.map {GapKey(id:$0.id,start:$0.start,end:$0.end)}
+        if times != frameTimes || keys != gapKeys {
+            frameTimes=times;gapKeys=keys;system=nil;selected=nil
+        }
+        if let processID {
+            if selected?.id != processID {selected=(processID,prepare(frames:frames,gaps:gaps,processID:processID))}
+            return selected?.data[metric] ?? ExplorerTraceData()
+        }
+        if system == nil {system=prepare(frames:frames,gaps:gaps,processID:nil)}
+        return system?[metric] ?? ExplorerTraceData()
+    }
+    private func prepare(frames:[Frame],gaps:[RecordingGap],processID:String?)->[String:ExplorerTraceData] {
+        preparationCount+=1
+        let metrics=["CPU","Memory","Energy","Disk"]
+        var result=Dictionary(uniqueKeysWithValues:metrics.map {($0,ExplorerTraceData())})
+        var runs=Dictionary(uniqueKeysWithValues:metrics.map {($0,0)})
+        let correctedCPU=processID != nil && frames.contains {$0.processCPUAccounting != nil}
+        for frame in frames.sorted(by:{$0.time<$1.time}) {
+            let process=processID.flatMap {id in frame.processes.first {$0.id==id}}
+            let elapsed=frame.elapsed ?? 0
+            let blocked=elapsed>0 && gaps.contains {$0.start<frame.time && ($0.end ?? .distantFuture)>frame.time.addingTimeInterval(-elapsed)}
+            var values:[String:[(String,Double)]]=[:]
+            if !blocked {
+                if processID == nil {
+                    values["CPU"]=[("value",frame.cpu)]
+                    values["Memory"]=[("value",Double(frame.memory)/1048576)]
+                    if elapsed>0 {
+                        var read=0.0,write=0.0,hasRead=false,hasWrite=false
+                        for row in frame.processes {
+                            if let bytes=row.read {read+=Double(bytes);hasRead=true}
+                            if let bytes=row.written {write+=Double(bytes);hasWrite=true}
+                        }
+                        if hasRead {values["Disk",default:[]].append(("read",read/elapsed/1048576))}
+                        if hasWrite {values["Disk",default:[]].append(("write",write/elapsed/1048576))}
+                    }
+                } else if let process {
+                    if let cpu=process.cpu,!correctedCPU || frame.processCPUAccounting != nil {values["CPU"]=[("value",cpu)]}
+                    values["Memory"]=[("value",Double(process.memory)/1048576)]
+                    if let watts=process.cpuPowerWatts(elapsed:frame.elapsed) {values["Energy"]=[("value",watts)]}
+                    if elapsed>0 {
+                        if let bytes=process.read {values["Disk",default:[]].append(("read",Double(bytes)/elapsed/1048576))}
+                        if let bytes=process.written {values["Disk",default:[]].append(("write",Double(bytes)/elapsed/1048576))}
+                    }
+                }
+            }
+            for metric in metrics {
+                let channels=values[metric] ?? []
+                if channels.isEmpty {runs[metric,default:0]+=1;continue}
+                for (channel,value) in channels where value.isFinite {
+                    let point=ExplorerPoint(time:frame.time,value:value,series:(frame.segment ?? "legacy")+"-\(runs[metric,default:0])-"+channel,channel:channel)
+                    result[metric,default:ExplorerTraceData()].points.append(point)
+                }
+            }
+        }
+        for metric in metrics {
+            if metric=="CPU" && processID==nil {result[metric]?.domain=0...100}
+            else if metric=="Memory" && processID==nil {result[metric]?.domain=0...Double(ProcessInfo.processInfo.physicalMemory)/1048576}
+            else {let maximum=result[metric]?.points.map(\.value).max() ?? 1;result[metric]?.domain=0...max(1,maximum*1.08)}
+        }
+        return result
+    }
+}
+
+struct ExplorerSnapshotData {
+    var impactScores:[String:Double]=[:]
+    var depths:[String:Int]=[:]
+}
+final class ExplorerSnapshotCache {
+    private var time:Date?
+    private var captureID:String?
+    private var includesDepths=false
+    private var value=ExplorerSnapshotData()
+    func clear() {time=nil;captureID=nil;includesDepths=false;value=ExplorerSnapshotData()}
+    func data(frame:Frame?,includeDepths:Bool=false)->ExplorerSnapshotData {
+        guard let frame else {time=nil;captureID=nil;value=ExplorerSnapshotData();return value}
+        guard frame.time != time || frame.energyImpact?.id != captureID || includeDepths != includesDepths else {return value}
+        time=frame.time;captureID=frame.energyImpact?.id;includesDepths=includeDepths
+        let parents=includeDepths ? Dictionary(frame.processes.map {($0.pid,$0)},uniquingKeysWith:{$1}) : [:]
+        var result=ExplorerSnapshotData()
+        if frame.energyImpact == nil && !includeDepths {value=result;return value}
+        for process in frame.processes {
+            if let score=explorerImpact(process,frame:frame) {result.impactScores[process.id]=score}
+            if includeDepths {
+                var pid=process.parent,seen=Set<Int32>(),depth=0
+                while let parent=parents[pid],seen.insert(pid).inserted,depth<8 {depth+=1;pid=parent.parent}
+                result.depths[process.id]=depth
+            }
+        }
+        value=result;return value
+    }
 }
 
 struct ExplorerTrace:View {
@@ -438,72 +557,62 @@ struct ExplorerTrace:View {
     let metric:String
     let gaps:[RecordingGap]
     var showXAxis=false
+    var traceCache:ExplorerTraceCache?=nil
+    @StateObject private var localCache=ExplorerTraceCache()
     private var color:Color {metric=="Memory" ? ExplorerPalette.memory : metric=="Disk" ? ExplorerPalette.disk : metric=="Energy" ? ExplorerPalette.energy : ExplorerPalette.cpu}
-    private var points:[ExplorerPoint] {
-        let correctedProcessCPU=processID != nil && metric=="CPU" && frames.contains {$0.processCPUAccounting != nil}
-        var result:[ExplorerPoint]=[];var run=0
-        for frame in frames.sorted(by:{$0.time<$1.time}) {
-            let process=processID.flatMap {id in frame.processes.first {$0.id==id}}
-            let elapsed=frame.elapsed ?? 0
-            let blocked=elapsed>0 && gaps.contains {$0.start<frame.time && ($0.end ?? .distantFuture)>frame.time.addingTimeInterval(-elapsed)}
-            var values:[(String,Double)]=[]
-            if !blocked {
-                switch metric {
-                case "Memory":
-                    if processID == nil {values=[("value",Double(frame.memory)/1048576)]}
-                    else if let process {values=[("value",Double(process.memory)/1048576)]}
-                case "Disk":
-                    if elapsed>0 {
-                        if processID == nil {
-                            let reads=frame.processes.compactMap(\.read),writes=frame.processes.compactMap(\.written)
-                            if !reads.isEmpty {values.append(("read",reads.reduce(0.0) {$0+Double($1)}/elapsed/1048576))}
-                            if !writes.isEmpty {values.append(("write",writes.reduce(0.0) {$0+Double($1)}/elapsed/1048576))}
-                        } else if let process {
-                            if let read=process.read {values.append(("read",Double(read)/elapsed/1048576))}
-                            if let written=process.written {values.append(("write",Double(written)/elapsed/1048576))}
-                        }
-                    }
-                case "Energy":if let watts=process?.cpuPowerWatts(elapsed:frame.elapsed) {values=[("value",watts)]}
-                default:
-                    if processID == nil {values=[("value",frame.cpu)]}
-                    else if let cpu=process?.cpu,!correctedProcessCPU || frame.processCPUAccounting != nil {values=[("value",cpu)]}
-                }
-            }
-            if values.isEmpty {run+=1;continue}
-            for (channel,value) in values where value.isFinite {
-                result.append(ExplorerPoint(time:frame.time,value:value,series:(frame.segment ?? "legacy")+"-\(run)-"+channel,channel:channel))
-            }
-        }
-        return result
-    }
-    private var domain:ClosedRange<Double> {
-        if metric=="CPU" && processID==nil {return 0...100}
-        if metric=="Memory" && processID==nil {return 0...Double(ProcessInfo.processInfo.physicalMemory)/1048576}
-        return 0...max(1,(points.map(\.value).max() ?? 1)*1.08)
-    }
     var body:some View {
-        Chart {
-            ForEach(points) {point in
-                if metric=="CPU" && processID==nil {
-                    AreaMark(x:.value("Time",point.time),y:.value("Value",point.value),series:.value("Series",point.series)).foregroundStyle(color.opacity(0.07))
+        let data=(traceCache ?? localCache).data(frames:frames,gaps:gaps,processID:processID,metric:metric)
+        VStack(spacing:3) {
+            ExplorerPlotCanvas {context,size in
+                let duration=max(0.001,range.duration),height=max(0.001,data.domain.upperBound-data.domain.lowerBound)
+                func position(_ point:ExplorerPoint)->CGPoint {
+                    CGPoint(x:point.time.timeIntervalSince(range.start)/duration*size.width,y:size.height-(point.value-data.domain.lowerBound)/height*size.height)
                 }
-                LineMark(x:.value("Time",point.time),y:.value("Value",point.value),series:.value("Series",point.series))
-                    .foregroundStyle(point.channel=="write" ? ExplorerPalette.energy : color).lineStyle(StrokeStyle(lineWidth:1.5))
-            }
-            if let cursor {RuleMark(x:.value("Cursor",cursor)).foregroundStyle(.secondary.opacity(0.55)).lineStyle(StrokeStyle(lineWidth:1))}
-            ForEach(gaps.filter {$0.start<range.end && ($0.end ?? Date())>range.start}) {gap in
-                RectangleMark(xStart:.value("Gap",max(range.start,gap.start)),xEnd:.value("Gap end",min(range.end,gap.end ?? Date()))).foregroundStyle(.orange.opacity(0.08))
-            }
-        }.chartXScale(domain:range.start...range.end).chartYScale(domain:domain).chartYAxis(.hidden).chartLegend(.hidden)
-            .chartXAxis {
-                if showXAxis {
-                    AxisMarks(values:.automatic(desiredCount:5)) {value in
-                        AxisValueLabel {
-                            if let date=value.as(Date.self) {Text(date.formatted(.dateTime.hour().minute().second())).font(.system(size:9)).foregroundStyle(.secondary)}
-                        }
+                // Draw each recorded segment independently so gaps stay visibly empty.
+                for gap in gaps where gap.start<range.end && (gap.end ?? range.end)>range.start {
+                    let lower=max(range.start,gap.start),upper=min(range.end,gap.end ?? range.end)
+                    let x=lower.timeIntervalSince(range.start)/duration*size.width
+                    context.fill(Path(CGRect(x:x,y:0,width:upper.timeIntervalSince(lower)/duration*size.width,height:size.height)),with:.color(.orange.opacity(0.08)))
+                }
+                for points in Dictionary(grouping:data.points,by:\.series).values {
+                    guard let first=points.first,let last=points.last else {continue}
+                    var line=Path();line.move(to:position(first))
+                    for point in points.dropFirst() {line.addLine(to:position(point))}
+                    if metric=="CPU" && processID==nil {
+                        var area=line
+                        area.addLine(to:CGPoint(x:position(last).x,y:size.height));area.addLine(to:CGPoint(x:position(first).x,y:size.height));area.closeSubpath()
+                        context.fill(area,with:.color(color.opacity(0.07)))
                     }
+                    context.stroke(line,with:.color(first.channel=="write" ? ExplorerPalette.energy : color),lineWidth:1.5)
                 }
+                if let cursor,range.start<=cursor,cursor<=range.end {
+                    let x=cursor.timeIntervalSince(range.start)/duration*size.width
+                    var line=Path();line.move(to:CGPoint(x:x,y:0));line.addLine(to:CGPoint(x:x,y:size.height))
+                    context.stroke(line,with:.color(ExplorerPalette.background.opacity(0.9)),lineWidth:4)
+                    context.stroke(line,with:.color(ExplorerPalette.cursor),lineWidth:2)
+                }
+            }.clipped()
+            if showXAxis {
+                GeometryReader {geometry in
+                    ForEach(0..<5,id:\.self) {index in
+                        let date=range.start.addingTimeInterval(range.duration*Double(index)/4)
+                        Text(date.formatted(.dateTime.hour().minute().second()))
+                            .font(.system(size:9)).foregroundStyle(.secondary)
+                            .frame(width:90,alignment:index==0 ? .leading : index==4 ? .trailing : .center)
+                            .position(x:index==0 ? 45 : index==4 ? geometry.size.width-45 : geometry.size.width*Double(index)/4,y:6)
+                    }
+                }.frame(height:13)
             }
+        }.accessibilityElement(children:.ignore)
+            .accessibilityLabel("\(metric) history")
+            .accessibilityValue("\(data.points.count) recorded values, \(range.start.formatted(date:.omitted,time:.standard)) to \(range.end.formatted(date:.omitted,time:.standard))")
+    }
+}
+
+enum ExplorerTimelinePosition {
+    static func time(atX x:Double,width:Double,range:DateInterval)->Date? {
+        guard x.isFinite,width.isFinite,width>0,range.duration.isFinite,range.duration>0 else {return nil}
+        return range.start.addingTimeInterval(min(1,max(0,x/width))*range.duration)
     }
 }
 
@@ -522,6 +631,7 @@ private enum ExplorerPalette {
     }
     static let background=adaptive((0.105,0.132,0.16),(0.96,0.97,0.98))
     static let inspector=adaptive((0.09,0.115,0.145),(0.935,0.945,0.955))
+    static let cursor=adaptive((0.94,0.97,1),(0.12,0.18,0.25))
     static let cpu=adaptive((0.59,0.84,0.75),(0.14,0.45,0.35))
     static let memory=adaptive((0.73,0.67,0.86),(0.43,0.32,0.63))
     static let disk=adaptive((0.60,0.74,0.91),(0.18,0.39,0.67))

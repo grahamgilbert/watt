@@ -13,15 +13,18 @@ import WattEnergyProtocol
     @Published private(set) var lastError:String?
     @Published private(set) var isSignedBuild=false
     private let service=SMAppService.daemon(plistName:EnergyServiceConfiguration.plistName)
-    private var team:String?
+    // The running executable's identity cannot change. Rechecking it on every activation
+    // needlessly walks the code signature on the main thread.
+    private let team=EnergyServiceIdentity.currentTeam(identifier:EnergyServiceConfiguration.appIdentifier)
     private var timer:Timer?
+    private var captureTimeout:Timer?
+    private let decodingQueue=DispatchQueue(label:"com.grahamgilbert.Watt.Energy.decode",qos:.utility)
     private var connection:NSXPCConnection?
     private var connectionID=UUID()
     private var activeCapture:UUID?
     private var requestedInterval:TimeInterval=5
     init() {refreshStatus()}
     func refreshStatus() {
-        team=EnergyServiceIdentity.currentTeam(identifier:EnergyServiceConfiguration.appIdentifier)
         isSignedBuild=team != nil
         let value=service.status
         isInstalled=value == .enabled;needsApproval=value == .requiresApproval
@@ -67,11 +70,12 @@ import WattEnergyProtocol
         }
         isRunning=true
         let timer=Timer(timeInterval:requestedInterval,repeats:true) { [weak self] _ in Task { @MainActor in self?.capture() } }
+        timer.tolerance=min(1,requestedInterval*0.1)
         self.timer=timer;RunLoop.main.add(timer,forMode:.common)
         capture()
     }
     func stop() {
-        timer?.invalidate();timer=nil
+        timer?.invalidate();timer=nil;captureTimeout?.invalidate();captureTimeout=nil
         isRunning=false;activeCapture=nil;connectionID=UUID()
         let old=connection;connection=nil;old?.invalidate()
         EnergyImpactCache.shared.clear()
@@ -79,7 +83,7 @@ import WattEnergyProtocol
     }
     private func connectionEnded(_ id:UUID) {
         guard connectionID==id else {return}
-        timer?.invalidate();timer=nil;activeCapture=nil;isRunning=false
+        timer?.invalidate();timer=nil;captureTimeout?.invalidate();captureTimeout=nil;activeCapture=nil;isRunning=false
         let old=connection;connection=nil;connectionID=UUID();old?.invalidate()
         EnergyImpactCache.shared.clear();status="Energy collector connection ended. Enable collection to reconnect."
     }
@@ -94,24 +98,41 @@ import WattEnergyProtocol
         proxy.capture { [weak self] data,error in
             Task { @MainActor in self?.received(data,error:error,token:token) }
         }
-        DispatchQueue.main.asyncAfter(deadline:.now()+11) { [weak self] in
-            guard let self,self.activeCapture==token else {return}
-            self.connectionEnded(self.connectionID)
-            self.status="Energy collector reply timed out. Enable collection to reconnect."
+        let timeout=Timer(timeInterval:11,repeats:false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self,self.activeCapture==token else {return}
+                self.connectionEnded(self.connectionID)
+                self.status="Energy collector reply timed out. Enable collection to reconnect."
+            }
         }
+        captureTimeout=timeout;RunLoop.main.add(timeout,forMode:.common)
     }
     private func received(_ data:Data?,error:String?,token:UUID) {
         guard isRunning,activeCapture==token else {return}
-        activeCapture=nil
+        captureTimeout?.invalidate();captureTimeout=nil
         guard let data,error == nil,data.count<=EnergyServiceConfiguration.maximumOutputBytes else {
+            activeCapture=nil
             lastError=error ?? "Energy collector returned no sample.";status=lastError!;EnergyImpactCache.shared.clear();return
         }
-        do {
-            let sample=try JSONDecoder().decode(EnergyImpactSample.self,from:data)
-            try sample.validate()
-            guard sample.endedAt<=Date(),Date().timeIntervalSince(sample.endedAt)<=15 else {throw EnergyImpactParseError.invalidSample}
-            EnergyImpactCache.shared.store(sample);lastSampleDate=sample.endedAt;lastError=nil
-            status=sample.hasEnergyValues ? "Collecting Apple’s process Energy Impact estimates." : "Apple Energy Impact was unavailable in this sample."
-        } catch {lastError=error.localizedDescription;status=error.localizedDescription;EnergyImpactCache.shared.clear()}
+        decodingQueue.async { [weak self] in
+            let sample:EnergyImpactSample?,failure:String?
+            do {
+                let value=try JSONDecoder().decode(EnergyImpactSample.self,from:data)
+                try value.validate()
+                guard value.endedAt<=Date(),Date().timeIntervalSince(value.endedAt)<=15 else {throw EnergyImpactParseError.invalidSample}
+                sample=value;failure=nil
+            } catch {sample=nil;failure=error.localizedDescription}
+            Task { @MainActor in self?.decoded(sample,error:failure,token:token) }
+        }
+    }
+    private func decoded(_ sample:EnergyImpactSample?,error:String?,token:UUID) {
+        // A stop, sleep, or replaced connection while decoding must not revive old data.
+        guard isRunning,activeCapture==token else {return}
+        activeCapture=nil
+        guard let sample else {
+            lastError=error ?? "Energy collector returned no sample.";status=lastError!;EnergyImpactCache.shared.clear();return
+        }
+        EnergyImpactCache.shared.store(sample);lastSampleDate=sample.endedAt;lastError=nil
+        status=sample.hasEnergyValues ? "Collecting Apple’s process Energy Impact estimates." : "Apple Energy Impact was unavailable in this sample."
     }
 }
