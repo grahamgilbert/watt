@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import WattEnergyProtocol
 
 // Explicit illustrative samples, isolated from the user's recording database and preferences.
 @MainActor func renderExplorerPreview(to path:String,applications:Bool=false) throws {
@@ -24,7 +25,8 @@ import SwiftUI
                               applicationName:offset<5 ? "Developer Tools" : offset==8 ? "Editor" : offset==9 ? "Watt" : nil)
         }
         return Frame(time:time,cpu:17+phase*76,memory:UInt64(21.4*1073741824+phase*900_000_000),compressed:2_100_000_000,swap:0,download:9_400_000,upload:1_300_000,processes:processes,denied:12,
-                     segment:"illustrative-build",elapsed:5,cadence:5,memoryAccounting:"app-wired-compressed",processCPUAccounting:"mach-timebase-to-nanoseconds")
+                     segment:"illustrative-build",elapsed:5,cadence:5,memoryAccounting:"app-wired-compressed",processCPUAccounting:"mach-timebase-to-nanoseconds",
+                     energyImpact:EnergyImpactSample(id:"fixture-\(index)",startedAt:time.addingTimeInterval(-5),endedAt:time,tasks:processes.map {EnergyImpactTask(pid:$0.pid,name:$0.name,energyImpact:nil,energyImpactPerSecond:($0.cpu ?? 0)*0.12,processStartMicroseconds:$0.start)}))
     }
     let monitor=Monitor(previewFrames:frames)
     let range=DateInterval(start:start,duration:120)
@@ -34,6 +36,7 @@ import SwiftUI
     let controls=ProcessExplorerControls()
     controls.center=start.addingTimeInterval(60);controls.duration=120;controls.selection=frames[0].processes[2].id
     controls.mode="Interval summary"
+    controls.impactSummaries=ExplorerImpactSummary.summarize(frames,range:range,gaps:[])
     if applications {
         controls.scope="Applications";controls.sort="CPU energy"
         controls.applicationSelection="app:com.example.DeveloperTools"

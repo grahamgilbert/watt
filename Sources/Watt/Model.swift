@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import AppKit
 import CTelemetry
+import WattEnergyProtocol
 
 struct ProcessRow: Identifiable, Codable {
     var pid: Int32; var parent: Int32; var start: UInt64; var name: String
@@ -28,6 +29,8 @@ struct Frame: Codable, Identifiable {
     var cadence: Double? = nil
     var memoryAccounting: String? = nil
     var processCPUAccounting: String? = nil
+    // Preserve the capture identity and interval; multiple frames may reference the same reading.
+    var energyImpact: EnergyImpactSample? = nil
     var id: Date { time }
 }
 func delta(_ value: UInt64, _ previous: UInt64) -> UInt64? { value >= previous ? value - previous : nil }
@@ -45,6 +48,7 @@ final class Collector {
     private var processes: [String: WattProcess] = [:]
     private var last: TimeInterval?
     private let applicationResolver=ProcessApplicationResolver()
+    private var baselineStartedAt=Date()
     func sample() -> Frame? {
         failed = false
         var system = WattSystem()
@@ -81,10 +85,12 @@ final class Collector {
         let baseline = previous != nil
         previous=system; processes=next; last=now
         guard baseline else { return nil }
-        return Frame(time:Date(),cpu:cpu,memory:system.memory,compressed:system.compressed,swap:system.swap,
-                     download:rx,upload:tx,processes:rows,denied:count < 0 ? -1 : Int(denied),power:PowerReading.read(),elapsed:elapsed,memoryAccounting:"app-wired-compressed",processCPUAccounting:"mach-timebase-to-nanoseconds")
+        let sampledAt=Date()
+        let energyImpact=EnergyImpactCache.shared.latest(maxAge:15,now:sampledAt).flatMap { $0.startedAt>=baselineStartedAt ? $0 : nil }
+        return Frame(time:sampledAt,cpu:cpu,memory:system.memory,compressed:system.compressed,swap:system.swap,
+                     download:rx,upload:tx,processes:rows,denied:count < 0 ? -1 : Int(denied),power:PowerReading.read(),elapsed:elapsed,memoryAccounting:"app-wired-compressed",processCPUAccounting:"mach-timebase-to-nanoseconds",energyImpact:energyImpact)
     }
-    func reset() { previous=nil; processes=[:]; last=nil }
+    func reset() { previous=nil; processes=[:]; last=nil;baselineStartedAt=Date() }
 }
 
 @MainActor final class Monitor: ObservableObject {

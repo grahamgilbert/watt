@@ -14,6 +14,6 @@ import SwiftUI
         layout.columnCount=3
         try renderHostedView(PopupLayoutEditorView(layout:layout,monitor:monitor,isExample:true),size:NSSize(width:1200,height:800),to:path)
     } else {
-        try renderHostedView(PreferencesView(viewportHeight:1000,settings:settings,monitor:monitor,updater:AppUpdater(startingUpdater:false),popupLayout:layout),size:NSSize(width:520,height:1000),to:path)
+        try renderHostedView(PreferencesView(viewportHeight:1200,settings:settings,monitor:monitor,updater:AppUpdater(startingUpdater:false),popupLayout:layout,energyCollector:EnergyImpactCollector()),size:NSSize(width:520,height:1200),to:path)
     }
 }

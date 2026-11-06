@@ -9,6 +9,22 @@ final class EnergyImpactParserTests:XCTestCase {
     private func sample(task:EnergyImpactTask?=nil)->EnergyImpactSample {
         EnergyImpactSample(startedAt:start,endedAt:end,tasks:[task ?? EnergyImpactTask(pid:42,name:"build",energyImpact:1.5,energyImpactPerSecond:1.5,processStartMicroseconds:1_799_999_900_000_000)])
     }
+    func testReferencePowermetricsOutputSkipsDeadTasksAggregate() throws {
+        let path=try XCTUnwrap(Bundle.module.url(forResource:"powermetrics-tasks-reference",withExtension:"plist",subdirectory:"Fixtures"))
+        let parsed=try EnergyImpactParser.parse(Data(contentsOf:path)+Data([0]),startedAt:start,endedAt:end)
+        XCTAssertEqual(parsed.tasks.map(\.pid),[1234,5678])
+        XCTAssertEqual(parsed.tasks.map(\.name),["Safari","Chrome"])
+        XCTAssertEqual(parsed.tasks[0].energyImpact,125.5)
+        XCTAssertEqual(parsed.tasks[1].energyImpactPerSecond,25.075)
+    }
+    func testUnknownRelationshipSentinelsStayUnavailableWithoutDroppingRealTasks() throws {
+        let output=try data(["tasks":[["pid":42,"name":"build","energy_impact":1.0,"responsible_pid":-1,"parent_pid":-1],
+                                      ["pid":-1,"name":"DEAD_TASKS","energy_impact":5.0]]])
+        let parsed=try EnergyImpactParser.parse(output,startedAt:start,endedAt:end)
+        XCTAssertEqual(parsed.tasks.count,1)
+        XCTAssertNil(parsed.tasks[0].responsiblePID);XCTAssertNil(parsed.tasks[0].parentPID)
+        XCTAssertThrowsError(try EnergyImpactParser.parse(data(["tasks":[["pid":-1,"name":"unexpected"]]]),startedAt:start,endedAt:end))
+    }
     func testNulSeparatedMetadataAndSamplesSelectTheLatestTaskPlist() throws {
         let metadata=try data(["machine_name":"test"])
         let first=try data(["tasks":[["pid":42,"name":"build","energy_impact":1.5,"energy_impact_per_s":1.5]]])

@@ -16,14 +16,25 @@ retry_ticket() {
 }
 version=$(cat VERSION)
 app="$PWD/dist/Watt.app"
+helper="$app/Contents/Library/HelperTools/WattEnergyHelper"
+helper_identifier="com.grahamgilbert.Watt.EnergyHelper"
 zsh scripts/build-app.sh release
 architectures=$(lipo -archs "$app/Contents/MacOS/Watt")
 [[ " $architectures " == *" arm64 "* && " $architectures " == *" x86_64 "* ]] || { echo "Release must contain both architectures" >&2; exit 1; }
+helper_architectures=$(lipo -archs "$helper")
+[[ " $helper_architectures " == *" arm64 "* && " $helper_architectures " == *" x86_64 "* ]] || { echo "Energy helper must contain both release architectures" >&2; exit 1; }
+# Sign the fixed privileged daemon before sealing the containing app.
+codesign --force --options runtime --timestamp --keychain "$WATT_KEYCHAIN" --identifier "$helper_identifier" --sign "$WATT_SIGNING_IDENTITY" "$helper"
+codesign --verify --strict "$helper"
+codesign -dv --verbose=4 "$helper" 2> "$RUNNER_TEMP/watt-helper-signature.txt"
+grep -Fx "Identifier=$helper_identifier" "$RUNNER_TEMP/watt-helper-signature.txt"
+grep -Fx "TeamIdentifier=$WATT_TEAM_ID" "$RUNNER_TEMP/watt-helper-signature.txt"
 python3 scripts/nested_signing.py "$app/Contents/Frameworks/Sparkle.framework" "$WATT_SIGNING_IDENTITY" "$WATT_KEYCHAIN"
 codesign --force --options runtime --timestamp --keychain "$WATT_KEYCHAIN" --sign "$WATT_SIGNING_IDENTITY" "$app"
 codesign --verify --deep --strict "$app"
 codesign -dv --verbose=4 "$app" 2> "$RUNNER_TEMP/watt-signature.txt"
-grep -F "TeamIdentifier=$WATT_TEAM_ID" "$RUNNER_TEMP/watt-signature.txt"
+grep -Fx "TeamIdentifier=$WATT_TEAM_ID" "$RUNNER_TEMP/watt-signature.txt"
+swift scripts/verify-helper-signature.swift "$app" "$WATT_TEAM_ID"
 ditto -c -k --keepParent "$app" "$RUNNER_TEMP/Watt-notarization.zip"
 xcrun notarytool submit "$RUNNER_TEMP/Watt-notarization.zip" --keychain "$WATT_KEYCHAIN" --keychain-profile watt-release --wait --output-format json > "$RUNNER_TEMP/watt-app-notary.json"
 python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); sys.exit(0 if r.get("status")=="Accepted" else "App notarization failed; inspect notary submission.")' "$RUNNER_TEMP/watt-app-notary.json"

@@ -1,13 +1,14 @@
 import XCTest
+import WattEnergyProtocol
 @testable import Watt
 
 final class PopupLayoutTests:XCTestCase {
-    func testDefaultSixSquaresPackIntoThreeRows() async {
+    func testNewInstallIncludesUnitlessEnergyImpactTile() async {
         await MainActor.run {
             Self.withSettings {layout,_ in
-                XCTAssertEqual(layout.visibleEntries.map(\.id),[.cpu,.memory,.download,.upload,.batteryFlow,.processCPUPower])
-                XCTAssertEqual(layout.rows.map { $0.entries.count },[2,2,2])
-                XCTAssertEqual(layout.contentHeight(),504)
+                XCTAssertEqual(layout.visibleEntries.map(\.id),[.cpu,.memory,.download,.upload,.batteryFlow,.processCPUPower,.energyImpact])
+                XCTAssertEqual(layout.rows.map { $0.entries.count },[2,2,2,1])
+                XCTAssertEqual(layout.contentHeight(),676)
                 XCTAssertTrue(layout.visibleEntries.allSatisfy {$0.span == .square})
             }
         }
@@ -60,7 +61,7 @@ final class PopupLayoutTests:XCTestCase {
         await MainActor.run {
             Self.withSettings {layout,defaults in
                 layout.setSpan(.fullWidth,for:.memory)
-                XCTAssertEqual(layout.rows.map {$0.entries.map(\.id)},[[.cpu],[.memory],[.download,.upload],[.batteryFlow,.processCPUPower]])
+                XCTAssertEqual(layout.rows.map {$0.entries.map(\.id)},[[.cpu],[.memory],[.download,.upload],[.batteryFlow,.processCPUPower],[.energyImpact]])
                 for entry in layout.entries {layout.setVisible(false,for:entry.id)}
                 XCTAssertTrue(layout.rows.isEmpty)
                 XCTAssertEqual(layout.contentHeight(),80)
@@ -124,17 +125,17 @@ final class PopupLayoutTests:XCTestCase {
         await MainActor.run {
             Self.withSettings {layout,_ in
                 layout.columnCount=3
-                XCTAssertEqual(layout.rows.map {$0.entries.count},[3,3])
+                XCTAssertEqual(layout.rows.map {$0.entries.count},[3,3,1])
                 XCTAssertEqual(layout.contentWidth(),504)
-                XCTAssertEqual(layout.contentHeight(),332)
+                XCTAssertEqual(layout.contentHeight(),504)
                 layout.columnCount=4
-                XCTAssertEqual(layout.rows.map {$0.entries.count},[4,2])
+                XCTAssertEqual(layout.rows.map {$0.entries.count},[4,3])
                 XCTAssertEqual(layout.contentWidth(),676)
                 layout.setSpan(.fullWidth,for:.memory)
-                XCTAssertEqual(layout.rows.map {$0.entries.map(\.id)},[[.cpu],[.memory],[.download,.upload,.batteryFlow,.processCPUPower]])
+                XCTAssertEqual(layout.rows.map {$0.entries.map(\.id)},[[.cpu],[.memory],[.download,.upload,.batteryFlow,.processCPUPower],[.energyImpact]])
                 XCTAssertEqual(layout.rows.flatMap(\.entries).map(\.id),layout.visibleEntries.map(\.id))
                 layout.columnCount=3
-                XCTAssertEqual(layout.rows.map {$0.entries.count},[1,1,3,1])
+                XCTAssertEqual(layout.rows.map {$0.entries.count},[1,1,3,2])
             }
         }
     }
@@ -227,6 +228,47 @@ final class PopupLayoutTests:XCTestCase {
             XCTAssertEqual(restored.visibleEntries.first?.id,.processCPUPower)
             XCTAssertTrue(restored.availableEntries.contains(where:{$0.id == .applicationCPUPower}))
         }
+    }
+    func testEnergyImpactTileStaysHiddenWhenAddedToAnExistingSavedLayout() async throws {
+        try await MainActor.run {
+            let suite="watt-popup-energy-upgrade-"+UUID().uuidString
+            let defaults=UserDefaults(suiteName:suite)!
+            defer {defaults.removePersistentDomain(forName:suite)}
+            let original=PopupLayoutSettings(defaults:defaults)
+            original.columnCount=4
+            original.place(.memory,atVisibleIndex:0)
+            let expected=original.entries.filter {$0.id != .energyImpact}
+            let data=try XCTUnwrap(defaults.data(forKey:PopupLayoutSettings.storageKey))
+            var stored=try XCTUnwrap(JSONSerialization.jsonObject(with:data) as? [String:Any])
+            let entries=try XCTUnwrap(stored["entries"] as? [[String:Any]])
+            stored["entries"]=entries.filter {($0["id"] as? String) != PopupItemID.energyImpact.rawValue}
+            defaults.set(try JSONSerialization.data(withJSONObject:stored),forKey:PopupLayoutSettings.storageKey)
+            let restored=PopupLayoutSettings(defaults:defaults)
+            XCTAssertEqual(Array(restored.entries.dropLast()),expected)
+            XCTAssertEqual(restored.entries.last,PopupLayoutEntry(id:.energyImpact,visible:false,span:.square))
+            XCTAssertEqual(restored.columnCount,4)
+            XCTAssertEqual(restored.visibleEntries.first?.id,.memory)
+        }
+    }
+    func testEnergyImpactRowsUsePerSecondScoreAndMatchProcessLifetime() {
+        let start=Date(timeIntervalSince1970:1_800_000_000)
+        let processStart:UInt64=1_799_999_900_000_000
+        let processes=(42...46).map {pid in ProcessRow(pid:Int32(pid),parent:1,start:processStart,name:"worker-\(pid)",cpu:nil,memory:0,growth:nil,read:nil,written:nil)}
+        var frame=Frame(time:start.addingTimeInterval(1),cpu:0,memory:0,compressed:0,swap:0,download:0,upload:0,processes:processes,denied:0)
+        frame.energyImpact=EnergyImpactSample(startedAt:start,endedAt:frame.time,tasks:[
+            EnergyImpactTask(pid:42,name:"worker",energyImpact:100,energyImpactPerSecond:2.5,processStartMicroseconds:processStart),
+            EnergyImpactTask(pid:43,name:"worker",energyImpact:nil,energyImpactPerSecond:5,processStartMicroseconds:processStart-1_000_000),
+            EnergyImpactTask(pid:44,name:"worker",energyImpact:40,energyImpactPerSecond:nil,processStartMicroseconds:processStart),
+            EnergyImpactTask(pid:45,name:"worker",energyImpact:0,energyImpactPerSecond:0,processStartMicroseconds:processStart)
+        ])
+        XCTAssertEqual(popupEnergyImpactRows(frame).map(\.process.pid),[42,45])
+        XCTAssertEqual(popupEnergyImpactRows(frame).map(\.impact),[2.5,0])
+        frame.time=start.addingTimeInterval(17)
+        XCTAssertTrue(popupEnergyImpactRows(frame).isEmpty)
+        frame.time=start
+        XCTAssertTrue(popupEnergyImpactRows(frame).isEmpty)
+        frame.energyImpact=nil
+        XCTAssertTrue(popupEnergyImpactRows(frame).isEmpty)
     }
     @MainActor private static func withSettings(_ body:(PopupLayoutSettings,UserDefaults)->Void) {
         let suite="watt-popup-tests-"+UUID().uuidString

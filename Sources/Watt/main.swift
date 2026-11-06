@@ -148,6 +148,9 @@ struct LiveView:View {
     let menuSettings=MenuBarSettings()
     let popupLayout=PopupLayoutSettings()
     lazy var updater=AppUpdater()
+    let energyCollector=EnergyImpactCollector()
+    private var energyIntervalSubscription:AnyCancellable?
+    private var energySleepObservers:[NSObjectProtocol]=[]
     var ribbon:Ribbon?
     var appearanceSubscription:AnyCancellable?
     let monitor=Monitor();var item:NSStatusItem!;let popover=NSPopover();var window:NSWindow?;var preferencesWindow:NSWindow?;var subscription:AnyCancellable?
@@ -174,6 +177,16 @@ struct LiveView:View {
         popover.delegate=self
         popover.behavior = .transient
         _ = updater
+        energyIntervalSubscription=monitor.$interval.removeDuplicates().sink { [weak self] interval in
+            DispatchQueue.main.async {self?.energyCollector.start(interval:interval)}
+        }
+        let workspace=NSWorkspace.shared.notificationCenter
+        energySleepObservers.append(workspace.addObserver(forName:NSWorkspace.willSleepNotification,object:nil,queue:.main) { [weak self] _ in
+            MainActor.assumeIsolated {self?.energyCollector.stop()}
+        })
+        energySleepObservers.append(workspace.addObserver(forName:NSWorkspace.didWakeNotification,object:nil,queue:.main) { [weak self] _ in
+            MainActor.assumeIsolated {guard let self else {return};self.energyCollector.start(interval:self.monitor.interval)}
+        })
         showLiveContent()
         showExplorer()
     }
@@ -185,7 +198,7 @@ struct LiveView:View {
         if preferencesWindow == nil {
             let preferences=NSWindow(contentRect:NSRect(x:0,y:0,width:520,height:680),styleMask:[.titled,.closable],backing:.buffered,defer:false)
             preferences.title="Watt Preferences"
-            preferences.contentView=NSHostingView(rootView:PreferencesView(settings:menuSettings,monitor:monitor,updater:updater,popupLayout:popupLayout))
+            preferences.contentView=NSHostingView(rootView:PreferencesView(settings:menuSettings,monitor:monitor,updater:updater,popupLayout:popupLayout,energyCollector:energyCollector))
             preferences.isReleasedWhenClosed=false
             preferences.center();preferencesWindow=preferences
         }
@@ -214,8 +227,14 @@ struct LiveView:View {
             return event
         }
     }
+    func applicationDidBecomeActive(_ notification:Notification) {
+        energyCollector.refreshStatus()
+        if energyCollector.isInstalled && !energyCollector.isRunning {energyCollector.start(interval:monitor.interval)}
+    }
     func applicationDidResignActive(_ notification:Notification) {dismissSurfaces()}
     func applicationWillTerminate(_ notification:Notification) {
+        energyCollector.stop()
+        for observer in energySleepObservers {NSWorkspace.shared.notificationCenter.removeObserver(observer)}
         if let outsideMonitor {NSEvent.removeMonitor(outsideMonitor)}
         if let localMonitor {NSEvent.removeMonitor(localMonitor)}
     }

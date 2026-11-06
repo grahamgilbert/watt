@@ -111,7 +111,7 @@ import WattEnergyProtocol
             try sample.validate()
             guard sample.endedAt<=Date(),Date().timeIntervalSince(sample.endedAt)<=15 else {throw EnergyImpactParseError.invalidSample}
             EnergyImpactCache.shared.store(sample);lastSampleDate=sample.endedAt;lastError=nil
-            status=sample.hasEnergyValues ? "Recording Apple's process Energy Impact estimates." : "Apple Energy Impact was unavailable in this sample."
+            status=sample.hasEnergyValues ? "Collecting Apple’s process Energy Impact estimates." : "Apple Energy Impact was unavailable in this sample."
         } catch {lastError=error.localizedDescription;status=error.localizedDescription;EnergyImpactCache.shared.clear()}
     }
 }

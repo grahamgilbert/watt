@@ -1,5 +1,6 @@
 import SwiftUI
 import Charts
+import WattEnergyProtocol
 
 final class ProcessExplorerControls:ObservableObject {
     @Published var center=Date()
@@ -12,6 +13,7 @@ final class ProcessExplorerControls:ObservableObject {
     @Published var scope="Processes"
     @Published var applicationSelection:String?
     @Published var applicationSummaries:[AppEnergySummary]=[]
+    @Published var impactSummaries:[String:ExplorerImpactSummary]=[:]
 }
 
 struct ProcessExplorerView:View {
@@ -56,6 +58,9 @@ struct ProcessExplorerView:View {
         guard !monitor.historyLoading else {return []}
         return controls.applicationSummaries.filter {controls.search.isEmpty || $0.name.localizedCaseInsensitiveContains(controls.search)}.sorted {($0.energyCoveredSeconds>0 ? $0.energyJoules : -1)>($1.energyCoveredSeconds>0 ? $1.energyJoules : -1)}
     }
+    private func refreshImpactSummaries() {
+        controls.impactSummaries=ExplorerImpactSummary.summarize(displayFrames,range:range,gaps:monitor.visibleGaps)
+    }
     private func refreshApplicationSummaries() {
         guard applicationsMode,summaryMode else {return}
         controls.applicationSummaries=AppPowerGrouping.summarize(displayFrames,range:range,gaps:monitor.visibleGaps)
@@ -64,6 +69,7 @@ struct ProcessExplorerView:View {
         let all=(monitor.current?.processes ?? []).filter {matches($0)}
         let sorted=all.sorted {
             switch controls.sort {
+            case "Energy Impact":return (explorerImpact($0,frame:monitor.current) ?? -1)>(explorerImpact($1,frame:monitor.current) ?? -1)
             case "CPU energy":return ($0.cpuPowerWatts(elapsed:monitor.current?.elapsed) ?? -1)>($1.cpuPowerWatts(elapsed:monitor.current?.elapsed) ?? -1)
             case "Memory":return $0.memory>$1.memory
             case "Disk read":return ($0.read ?? 0)>($1.read ?? 0)
@@ -81,6 +87,7 @@ struct ProcessExplorerView:View {
     private var summaries:[ProcessSummary] {
         accountedSummaries.filter {matches($0.process)}.sorted {
             switch controls.sort {
+            case "Energy Impact":return (controls.impactSummaries[$0.id]?.average ?? -1)>(controls.impactSummaries[$1.id]?.average ?? -1)
             case "CPU energy":return ($0.energyCoveredSeconds>0 ? $0.energyJoules : -1)>($1.energyCoveredSeconds>0 ? $1.energyJoules : -1)
             case "Memory":return $0.peakMemory>$1.peakMemory
             case "Disk read":return $0.readBytes>$1.readBytes
@@ -128,7 +135,7 @@ struct ProcessExplorerView:View {
                     ExplorerApplicationInspector(group:applicationGroups.first {$0.id==controls.applicationSelection},summary:summaryMode ? applicationSummaries.first {$0.id==controls.applicationSelection} : nil,summaryMode:summaryMode,range:range,elapsed:monitor.current?.elapsed)
                         .frame(width:290)
                 } else {
-                    ProcessInspector(identity:selectedIdentity,current:monitor.current,summary:summaryMode ? accountedSummaries.first(where:{$0.id==controls.selection}) : nil,frames:displayFrames,range:range,cursor:cursor,gaps:monitor.visibleGaps)
+                    ProcessInspector(identity:selectedIdentity,current:monitor.current,summary:summaryMode ? accountedSummaries.first(where:{$0.id==controls.selection}) : nil,frames:displayFrames,range:range,cursor:cursor,gaps:monitor.visibleGaps,impactSummary:summaryMode ? controls.impactSummaries[controls.selection ?? ""] : nil)
                         .frame(width:290)
                 }
             }.frame(maxHeight:.infinity)
@@ -141,11 +148,13 @@ struct ProcessExplorerView:View {
                 refreshApplicationSummaries()
             }
             .onChange(of:controls.mode) {_,_ in
+                refreshImpactSummaries()
                 if applicationsMode && summaryMode {controls.sort="CPU energy"}
                 refreshApplicationSummaries()
             }
-            .onChange(of:monitor.historyLoading) {_,loading in if loading {controls.applicationSummaries=[]} else {refreshApplicationSummaries()}}
+            .onChange(of:monitor.historyLoading) {_,loading in if loading {controls.applicationSummaries=[];controls.impactSummaries=[:]} else {refreshApplicationSummaries();refreshImpactSummaries()}}
             .onAppear {
+                refreshImpactSummaries()
                 refreshApplicationSummaries()
                 guard initializeControls else {return}
                 if let range=monitor.historyRange {controls.center=range.start.addingTimeInterval(range.duration/2);controls.duration=range.duration;controls.mode="Interval summary"}
@@ -200,7 +209,7 @@ struct ProcessExplorerView:View {
             Picker("Scope",selection:$controls.scope) {Text("Processes").tag("Processes");Text("Applications").tag("Applications")}.pickerStyle(.segmented).labelsHidden().frame(width:180)
             Picker("View",selection:$controls.mode) {Text("At cursor").tag("At cursor");Text("Interval summary").tag("Interval summary")}.pickerStyle(.segmented).labelsHidden().frame(width:175).disabled(monitor.historyRange==nil)
             Picker("Rank",selection:$controls.sort) {
-                ForEach(applicationsMode ? ["CPU","CPU energy"] : ["CPU","CPU energy","Memory","Disk read","Disk write"],id:\.self){Text($0).tag($0).disabled(applicationsMode && summaryMode && $0=="CPU")}
+                ForEach(applicationsMode ? ["CPU","CPU energy"] : ["CPU","Energy Impact","CPU energy","Memory","Disk read","Disk write"],id:\.self){Text($0).tag($0).disabled(applicationsMode && summaryMode && $0=="CPU")}
             }.frame(width:135)
             if !applicationsMode {Toggle("Parent tree",isOn:$controls.tree).toggleStyle(.checkbox).disabled(summaryMode)}
             Spacer(minLength:0)
@@ -266,6 +275,7 @@ struct ProcessExplorerView:View {
             TableColumn("PID") {Text(String($0.pid))}.width(52)
             TableColumn("Parent") {Text(String($0.parent))}.width(52)
             TableColumn("CPU %") {Text($0.cpu.map {String(format:"%.1f",$0)} ?? "—").foregroundStyle(ExplorerPalette.cpu).help(monitor.current?.processCPUAccounting == nil ? "Legacy recorded CPU values use the prototype scaling and can be underreported." : "CPU 100% equals one core. Native Mach CPU time has been converted to nanoseconds.")}.width(70)
+            TableColumn("Energy Impact") {Text(explorerImpactText(explorerImpact($0,frame:monitor.current))).foregroundStyle(ExplorerPalette.energy).help("Apple powermetrics unitless energy_impact_per_s score. Not watts; unavailable or stale captures show a dash.")}.width(105)
             TableColumn("CPU W est.") {Text(explorerPower($0.cpuPowerWatts(elapsed:monitor.current?.elapsed)))}.width(85)
             TableColumn("Footprint") {Text(bytes($0.memory))}.width(100)
             TableColumn("Δ memory") {p in Text(explorerDelta(p.growth))}.width(95)
@@ -278,13 +288,13 @@ struct ProcessExplorerView:View {
             TableColumn("Process") {Text($0.process.name)}.width(min:150,ideal:205)
             TableColumn("PID") {Text(String($0.process.pid))}.width(52)
             TableColumn("CPU avg / peak") {p in Text("\(explorerPercent(p.averageCPU)) / \(explorerPercent(p.peakCPU))").foregroundStyle(ExplorerPalette.cpu)}.width(125)
+            TableColumn("Impact avg / peak") {p in Text(controls.impactSummaries[p.id].map {"\(explorerImpactText($0.average)) / \(explorerImpactText($0.peak))"} ?? "—").foregroundStyle(ExplorerPalette.energy)}.width(120)
             TableColumn("CPU W avg / peak") {p in Text("\(explorerPower(p.averagePower)) / \(explorerPower(p.peakPower))")}.width(125)
             TableColumn("CPU energy · J") {p in Text(p.energyCoveredSeconds>0 ? String(format:"%.3f",p.energyJoules) : "—")}.width(95)
             TableColumn("CPU time") {Text($0.cpuCoveredSeconds>0 ? String(format:"%.2f s",$0.cpuSeconds) : "—")}.width(80)
             TableColumn("Footprint last / peak") {p in Text("\(bytes(p.lastMemory)) / \(bytes(p.peakMemory))")}.width(165)
             TableColumn("Δ memory") {p in Text(explorerDelta(p.memoryChange))}.width(95)
-            TableColumn("Read total") {Text($0.ioSamples>0 ? bytes($0.readBytes) : "—")}.width(95)
-            TableColumn("Write total") {Text($0.ioSamples>0 ? bytes($0.writtenBytes) : "—")}.width(95)
+            TableColumn("Read / write total") {p in Text(p.ioSamples>0 ? "\(bytes(p.readBytes)) / \(bytes(p.writtenBytes))" : "—")}.width(170)
         }.tableStyle(.inset(alternatesRowBackgrounds:false)).font(.system(size:11)).monospacedDigit().controlSize(.small).frame(maxHeight:.infinity)
     }
 }
@@ -333,6 +343,7 @@ private struct ProcessInspector:View {
     let range:DateInterval
     let cursor:Date?
     let gaps:[RecordingGap]
+    let impactSummary:ExplorerImpactSummary?
     private var process:ProcessRow? {guard let identity else{return nil};return current?.processes.first {$0.id==identity.id}}
     private var displayedCPU:Double? {if let summary {return summary.averageCPU};return process?.cpu}
     private var hasLegacyCPU:Bool {frames.contains {$0.processCPUAccounting == nil && $0.processes.contains {$0.id==identity?.id}}}
@@ -360,6 +371,20 @@ private struct ProcessInspector:View {
                         inspectorRow("Physical footprint",(summary?.lastMemory ?? process?.memory).map(bytes) ?? "—",color:ExplorerPalette.memory)
                         if let summary {inspectorRow("Peak in interval",bytes(summary.peakMemory));inspectorRow("End − start",explorerDelta(summary.memoryChange))}
                         else {inspectorRow("Change in sample",explorerDelta(process?.growth))}
+                    }
+                    inspectorSection("APPLE ENERGY IMPACT") {
+                        if let impactSummary {
+                            inspectorRow("Average score",explorerImpactText(impactSummary.average),color:ExplorerPalette.energy)
+                            inspectorRow("Sampled peak",explorerImpactText(impactSummary.peak))
+                            inspectorRow("Distinct captures",String(impactSummary.captures))
+                            Text(String(format:"Captured coverage %.1f / %.1f seconds",impactSummary.coveredSeconds,range.duration)).font(.system(size:9)).foregroundStyle(.secondary)
+                        } else {
+                            inspectorRow(summary == nil ? "Score at cursor" : "Average score",explorerImpactText(summary == nil ? process.flatMap {explorerImpact($0,frame:current)} : nil),color:ExplorerPalette.energy)
+                            if summary == nil,let process,explorerImpact(process,frame:current) != nil,let frame=current,let capture=frame.energyImpact {
+                                Text(String(format:"Capture age at cursor %.1f s · sampled %.1f s",frame.time.timeIntervalSince(capture.endedAt),capture.endedAt.timeIntervalSince(capture.startedAt))).font(.system(size:9)).foregroundStyle(.secondary)
+                            }
+                        }
+                        Text("Apple powermetrics unitless per-second score. Includes more than CPU energy; Activity Monitor may use different grouping and sampling. — means no matching fresh capture.").font(.system(size:9)).foregroundStyle(.secondary)
                     }
                     inspectorSection("CPU ENERGY · ESTIMATE") {
                         inspectorRow(summary == nil ? "Power at cursor" : "Average power",displayedPower.map {explorerPower($0)+" W"} ?? "Unavailable",color:ExplorerPalette.energy)
@@ -568,3 +593,43 @@ private struct ExplorerApplicationInspector:View {
         HStack(alignment:.firstTextBaseline,spacing:8) {Text(title).foregroundStyle(.secondary);Spacer(minLength:4);Text(value).monospacedDigit().foregroundStyle(color).multilineTextAlignment(.trailing)}.font(.system(size:10))
     }
 }
+
+
+// Scores are relative, not energy in joules. Never integrate a cached capture again
+// just because the main collector attached it to another process snapshot.
+struct ExplorerImpactSummary {
+    var weightedScore=0.0
+    var coveredSeconds=0.0
+    var peak=0.0
+    var captures=0
+    var average:Double? {coveredSeconds>0 ? weightedScore/coveredSeconds : nil}
+    static func summarize(_ frames:[Frame],range:DateInterval,gaps:[RecordingGap])->[String:Self] {
+        var result:[String:Self]=[:],seen=Set<String>()
+        for frame in frames.sorted(by:{$0.time<$1.time}) {
+            guard let sample=frame.energyImpact,!seen.contains(sample.id) else {continue}
+            let lower=max(range.start,sample.startedAt),upper=min(range.end,sample.endedAt)
+            guard upper>lower,!gaps.contains(where:{$0.start<upper && ($0.end ?? .distantFuture)>lower}) else {continue}
+            // A capture is only accepted through a fresh frame with a matching process lifetime.
+            let values=frame.processes.compactMap {process -> (String,Double)? in
+                guard let value=explorerImpact(process,frame:frame) else {return nil}
+                return (process.id,value)
+            }
+            guard !values.isEmpty else {continue}
+            seen.insert(sample.id)
+            let seconds=upper.timeIntervalSince(lower)
+            for (id,value) in values {
+                var entry=result[id] ?? Self()
+                entry.weightedScore+=value*seconds;entry.coveredSeconds+=seconds
+                entry.peak=max(entry.peak,value);entry.captures+=1;result[id]=entry
+            }
+        }
+        return result
+    }
+}
+private func explorerImpact(_ process:ProcessRow,frame:Frame?)->Double? {
+    guard let frame,process.start>0 else {return nil}
+    let start=Date(timeIntervalSince1970:Double(process.start)/1_000_000)
+    guard let value=frame.energyImpact?.task(forPID:process.pid,processStart:start,at:frame.time,maximumAge:15)?.energyImpactPerSecond,value.isFinite,value>=0 else {return nil}
+    return value
+}
+private func explorerImpactText(_ score:Double?)->String {score.map {String(format:"%.1f",$0)} ?? "—"}

@@ -79,9 +79,12 @@ public enum EnergyImpactParser {
             if value["tasks"] != nil {selected=value}
         }
         guard let root=selected,let rawTasks=root["tasks"] as? [[String:Any]],rawTasks.count<=16384 else {throw EnergyImpactParseError.missingTasks}
-        let tasks=try rawTasks.map {raw -> EnergyImpactTask in
+        let tasks=try rawTasks.compactMap {raw -> EnergyImpactTask? in
+            // powermetrics includes a synthetic exited-process aggregate, not an inspectable PID.
+            if let pid=raw["pid"] as? NSNumber,CFGetTypeID(pid) != CFBooleanGetTypeID(),
+               pid.doubleValue == -1,raw["name"] as? String == "DEAD_TASKS" {return nil}
             guard let pid=try integer(raw["pid"]),let name=raw["name"] as? String else {throw EnergyImpactParseError.invalidTask}
-            return EnergyImpactTask(pid:pid,name:name,energyImpact:try number(raw["energy_impact"]),energyImpactPerSecond:try number(raw["energy_impact_per_s"]),responsiblePID:try integer(raw["responsible_pid"]),parentPID:try integer(raw["parent_pid"] ?? raw["ppid"]))
+            return EnergyImpactTask(pid:pid,name:name,energyImpact:try number(raw["energy_impact"]),energyImpactPerSecond:try number(raw["energy_impact_per_s"]),responsiblePID:try integer(raw["responsible_pid"],unknownSentinel:true),parentPID:try integer(raw["parent_pid"] ?? raw["ppid"],unknownSentinel:true))
         }
         let sample=EnergyImpactSample(startedAt:startedAt,endedAt:endedAt,tasks:tasks)
         try sample.validate();return sample
@@ -93,10 +96,11 @@ public enum EnergyImpactParser {
         guard result.isFinite,result>=0 else {throw EnergyImpactParseError.invalidTask}
         return result
     }
-    private static func integer(_ value:Any?) throws -> Int32? {
+    private static func integer(_ value:Any?,unknownSentinel:Bool=false) throws -> Int32? {
         guard let value else {return nil}
         guard let number=value as? NSNumber,CFGetTypeID(number) != CFBooleanGetTypeID() else {throw EnergyImpactParseError.invalidTask}
         let result=number.doubleValue
+        if unknownSentinel,result == -1 {return nil}
         guard result.isFinite,result>=0,result<=Double(Int32.max),result.rounded()==result else {throw EnergyImpactParseError.invalidTask}
         return Int32(result)
     }

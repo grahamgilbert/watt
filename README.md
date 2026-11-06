@@ -38,7 +38,7 @@ Pauses, sleep/wake, restarts, delayed polling, clock discontinuities and write f
 
 The live cache contains up to 720 frames. Historical queries are bounded to 1,500 frames and 96 MiB of payload. Oversized requests ask for a narrower window instead of silently dropping samples. Totals use complete known intervals and exclude gaps. Earlier records without elapsed metadata can show gauges/peaks but cannot supply reliable CPU time or interval totals. There are no rollups or recovery of expired/unrecorded detail.
 
-Still to implement: hardware temperature/component-power collectors, integration and live validation of the experimental signed helper, pressure accounting, incident/build markers and baseline comparison, long-term rollups, exact coalition attribution, export, more accessibility work and measured width parity. iStat and security settings are untouched.
+Still to implement: hardware temperature/component-power collectors, live validation of privileged energy collection, pressure accounting, incident/build markers and baseline comparison, long-term rollups, exact coalition attribution, export, more accessibility work and measured width parity. iStat and security settings are untouched.
 
 ## Validation
 
@@ -61,3 +61,5 @@ CI and signed/notarized releases are documented in [RELEASING.md](docs/RELEASING
 Popup layout: Preferences opens a separate layout editor. Metric tiles occupy a configurable two-to-six-column square grid. Drag disabled tiles from Available into the popup preview, reorder them there, or drag them back to hide. A tile can optionally span the full width. Order, visibility, and widths persist. More tiles scroll within the popup; the footer remains reachable.
 
 Per-process CPU energy: supported ARM Macs expose cumulative nanojoules through `proc_pid_rusage(RUSAGE_INFO_V6)`. Watt stores interval deltas, derives estimated watts from measured elapsed time, and records joules over covered historical intervals. Missing/protected/unsupported readings use a dash; a measured zero remains zero. This CPU-only estimate is not Activity Monitor's Energy Impact score, GPU energy, or whole-system power. Kernel semantics: [Apple Recount](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/kern/recount.h).
+
+Apple Energy Impact: the optional signed helper runs a fixed, bounded `powermetrics` capture. Install or remove it in Preferences; macOS requires administrator approval in Login Items & Extensions. The helper and app enforce matching Developer ID teams and exact signing identifiers on their XPC connection. Scores retain their capture timestamps/IDs in SQLite and are separate from CPU watts. Historical scores count unique captures and exclude gaps. The process table only joins matching process lifetimes; missing/stale readings stay unavailable. Live privileged collection requires validation on an approved signed installation.

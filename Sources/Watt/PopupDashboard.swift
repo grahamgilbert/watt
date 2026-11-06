@@ -1,5 +1,6 @@
 import SwiftUI
 import Charts
+import WattEnergyProtocol
 
 // The dashboard reads the same recorded samples as Process Explorer.
 struct PopupDashboard:View {
@@ -104,6 +105,7 @@ struct PopupDashboard:View {
         case .cpuProcesses: processTile(energy:false)
         case .processCPUPower: processTile(energy:true)
         case .applicationCPUPower: applicationPowerTile
+        case .energyImpact: energyImpactTile
         case .diskRead: diskTile(read:true)
         case .diskWrite: diskTile(read:false)
         case .memoryDetail:
@@ -208,6 +210,34 @@ struct PopupDashboard:View {
                 .help("CPU energy available for \(measured) of \(observed) observed processes. \(frame.denied<0 ? "Process query coverage unavailable." : "\(frame.denied) process queries denied.") Totals include only measured, observed helpers; missing energy is not zero.")
         }.help("Estimated CPU power grouped by application and its observed helpers. Orange dots indicate partial energy coverage or denied process queries. Tools without an identified application remain separate. This is not Apple’s Energy Impact score, GPU power, or whole-device power.")
     }
+    private var energyImpactTile:some View {
+        let values=Array(popupEnergyImpactRows(frame).prefix(3))
+        return VStack(alignment:.leading,spacing:9) {
+            heading("ENERGY IMPACT",color:.orange)
+            if values.isEmpty {
+                Spacer(minLength:0)
+                Text("Unavailable").font(.system(size:16,weight:.medium)).foregroundStyle(.secondary)
+                Text(frame.energyImpact == nil ? "Waiting for an energy sample" : "No matching process sample").font(.system(size:9)).foregroundStyle(.tertiary)
+                Spacer(minLength:0)
+            } else {
+                ForEach(values) {row in
+                    VStack(alignment:.leading,spacing:4) {
+                        HStack(spacing:6) {
+                            Text(row.process.name).lineLimit(1).truncationMode(.middle)
+                            Spacer(minLength:0)
+                            Text(String(format:"%.1f",row.impact)).monospacedDigit().layoutPriority(1)
+                        }.font(.system(size:10,weight:.medium))
+                        GeometryReader {geometry in
+                            Capsule().fill(.primary.opacity(0.06))
+                            Capsule().fill(Color.orange.opacity(0.65)).frame(width:geometry.size.width*min(1,row.impact/max(values.first?.impact ?? 1,0.001)))
+                        }.frame(height:3)
+                    }
+                }
+                Spacer(minLength:0)
+            }
+            Text("Apple · unitless process score").font(.system(size:9)).foregroundStyle(.secondary).lineLimit(1)
+        }.help("Apple’s relative process Energy Impact score, normalized per second by powermetrics. It is unitless, not CPU watts. Values match the recorded process PID and lifetime and expire after 15 seconds. This does not reproduce Activity Monitor’s exact application grouping. Enable the signed energy collector in Preferences for live samples.")
+    }
     private func usableAppPower(_ group:AppPowerGroup)->Double? {
         guard let watts=group.cpuPowerWatts,watts.isFinite,watts>=0 else {return nil}
         return watts
@@ -220,6 +250,21 @@ struct PopupDashboard:View {
     private func heading(_ title:String,color:Color)->some View {
         HStack(spacing:5) {Circle().fill(color).frame(width:4,height:4);Text(title).font(.system(size:8,weight:.semibold)).tracking(0.8).lineLimit(1)}.foregroundStyle(.secondary)
     }
+}
+
+struct PopupEnergyImpactRow:Identifiable {
+    let process:ProcessRow
+    let impact:Double
+    var id:String {process.id}
+}
+func popupEnergyImpactRows(_ frame:Frame)->[PopupEnergyImpactRow] {
+    guard let sample=frame.energyImpact else {return []}
+    return frame.processes.compactMap {process in
+        guard process.start>0,
+              let task=sample.task(forPID:process.pid,processStart:Date(timeIntervalSince1970:Double(process.start)/1e6),at:frame.time,maximumAge:15),
+              let value=task.energyImpactPerSecond,value.isFinite,value>=0 else {return nil}
+        return PopupEnergyImpactRow(process:process,impact:value)
+    }.sorted {$0.impact == $1.impact ? $0.process.pid<$1.process.pid : $0.impact>$1.impact}
 }
 
 func popupDiskRate(_ frame:Frame,read:Bool)->Double? {

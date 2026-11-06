@@ -54,6 +54,7 @@ struct PreferencesView:View {
     @ObservedObject var monitor:Monitor
     @ObservedObject var updater:AppUpdater
     @ObservedObject var popupLayout:PopupLayoutSettings
+    var energyCollector:EnergyImpactCollector?=nil
     @StateObject private var layoutEditor=PopupLayoutEditorPresenter()
     var body:some View {
         Form {
@@ -90,6 +91,9 @@ struct PreferencesView:View {
                     Button("Edit layout…") {layoutEditor.show(layout:popupLayout,monitor:monitor)}
                 }
             }
+            if let energyCollector {
+                Section("Energy Impact") {EnergyCollectorControls(collector:energyCollector,interval:monitor.interval)}
+            }
             Section("Updates") {UpdateControls(updater:updater)}
         }.formStyle(.grouped).frame(width:520,height:viewportHeight)
         .onChange(of:settings.metricNumbers) {_,_ in enforceReadableWidth()}
@@ -100,6 +104,41 @@ struct PreferencesView:View {
     private func enforceReadableWidth() {if settings.width<52 && settings.layout == "Ribbon" && settings.network && settings.networkNumbers && settings.metricNumbers {settings.width=52}}
     private func metricPicker(_ title:String,_ binding:Binding<String>)->some View {
         Picker(title,selection:binding) {ForEach(["CPU","Memory","Network","Battery power"],id:\.self){Text($0).tag($0)}}
+    }
+}
+
+private struct EnergyCollectorControls:View {
+    @ObservedObject var collector:EnergyImpactCollector
+    let interval:Double
+    var body:some View {
+        VStack(alignment:.leading,spacing:10) {
+            Text(collector.status).font(.caption).foregroundStyle(collector.lastError == nil ? Color.secondary : .orange)
+                .fixedSize(horizontal:false,vertical:true).accessibilityIdentifier("energy.collector.status")
+            HStack {
+                if collector.needsApproval {
+                    Button("Approve in System Settings…") {collector.requestApproval()}.buttonStyle(.borderedProminent)
+                        .disabled(!collector.isSignedBuild)
+                        .accessibilityIdentifier("energy.collector.approve")
+                } else if collector.isInstalled {
+                    if !collector.isRunning {
+                        Button("Start collection") {collector.start(interval:interval)}.disabled(!collector.isSignedBuild)
+                            .accessibilityIdentifier("energy.collector.start")
+                    }
+                } else {
+                    Button("Install collector…") {collector.install()}.disabled(!collector.isSignedBuild)
+                        .accessibilityIdentifier("energy.collector.install")
+                }
+                if collector.isInstalled || collector.needsApproval {
+                    Button("Remove collector",role:.destructive) {collector.unregister()}
+                        .accessibilityIdentifier("energy.collector.remove")
+                }
+                Spacer(minLength:0)
+                Button("Refresh") {collector.refreshStatus()}.accessibilityIdentifier("energy.collector.refresh")
+            }.controlSize(.small)
+            if let date=collector.lastSampleDate {
+                HStack {Text("Last sample");Spacer();Text(date,style:.time).monospacedDigit()}.font(.caption).foregroundStyle(.secondary)
+            }
+        }.onAppear {collector.refreshStatus()}
     }
 }
 

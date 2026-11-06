@@ -6,5 +6,5 @@ let package = Package(name: "Watt", platforms: [.macOS(.v14)], targets: [
     .executableTarget(name: "WattEnergyHelper", dependencies: ["WattEnergyProtocol", "CTelemetry"], swiftSettings: [.swiftLanguageMode(.v5)]),
     .target(name: "CTelemetry", linkerSettings: [.linkedLibrary("proc"), .linkedLibrary("sqlite3")]),
     .executableTarget(name: "Watt", dependencies: ["CTelemetry", "Sparkle", "WattEnergyProtocol"], swiftSettings: [.swiftLanguageMode(.v5)], linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]),
-    .testTarget(name: "WattTests", dependencies: ["Watt", "WattEnergyProtocol"])
+    .testTarget(name: "WattTests", dependencies: ["Watt", "WattEnergyProtocol"], resources: [.copy("Fixtures")])
 ])

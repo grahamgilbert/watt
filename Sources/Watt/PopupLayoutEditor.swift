@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import WattEnergyProtocol
 
 @MainActor final class PopupLayoutEditorWindowController:NSWindowController {
     init(layout:PopupLayoutSettings,monitor:Monitor) {
@@ -42,7 +43,7 @@ struct PopupLayoutEditorView:View {
                 Picker("Columns",selection:$layout.columnCount) {
                     ForEach(2...6,id:\.self) {Text("\($0)").tag($0)}
                 }.pickerStyle(.menu).frame(width:112).accessibilityIdentifier("popup.layout.columns")
-                Button("Reset layout") {layout.reset()}.help("Restore six visible square tiles in their original order").accessibilityIdentifier("popup.layout.reset")
+                Button("Reset layout") {layout.reset()}.help("Restore the default tiles, order, and two-column layout").accessibilityIdentifier("popup.layout.reset")
             }.padding(24)
             Divider()
             HStack(alignment:.top,spacing:0) {
@@ -122,7 +123,9 @@ enum PopupLayoutPreview {
         return (0..<36).map {index in
             let wave=sin(Double(index)/4)
             let process=ProcessRow(pid:120,parent:1,start:1,name:"Build process",cpu:145+wave*30,memory:512*1024*1024,growth:nil,read:2*1024*1024,written:512*1024,energyNanojoules:2_000_000_000)
-            return Frame(time:now.addingTimeInterval(Double(index)*5),cpu:42+wave*18,memory:UInt64(Double(ProcessInfo.processInfo.physicalMemory)*(0.55+wave*0.025)),compressed:2*1024*1024*1024,swap:512*1024*1024,download:450_000+wave*280_000,upload:90_000+wave*50_000,processes:[process],denied:0,power:PowerReading(volts:12.1,amps:-0.8-wave*0.2,externalPower:false,sampledAt:now),segment:"example",elapsed:5)
+            let time=now.addingTimeInterval(Double(index)*5)
+            let energy=EnergyImpactSample(startedAt:time.addingTimeInterval(-1),endedAt:time,tasks:[EnergyImpactTask(pid:process.pid,name:process.name,energyImpact:3+wave,energyImpactPerSecond:3+wave,processStartMicroseconds:process.start)])
+            return Frame(time:time,cpu:42+wave*18,memory:UInt64(Double(ProcessInfo.processInfo.physicalMemory)*(0.55+wave*0.025)),compressed:2*1024*1024*1024,swap:512*1024*1024,download:450_000+wave*280_000,upload:90_000+wave*50_000,processes:[process],denied:0,power:PowerReading(volts:12.1,amps:-0.8-wave*0.2,externalPower:false,sampledAt:now),segment:"example",elapsed:5,energyImpact:energy)
         }
     }
 }

@@ -31,7 +31,7 @@ final class PowermetricsCapture {
             let capture=Capture(owner:owner,reply:reply);self.current=capture
             let process=capture.process
             process.executableURL=URL(fileURLWithPath:"/usr/bin/powermetrics")
-            process.arguments=["--samplers","tasks","--show-process-energy","--show-process-coalition","--show-responsible-pid","-f","plist","-n","1","-i","1000"]
+            process.arguments=["--samplers","tasks","--show-process-energy","--show-responsible-pid","-f","plist","-n","1","-i","1000"]
             process.environment=["PATH":"/usr/bin:/bin:/usr/sbin:/sbin","LANG":"C","LC_ALL":"C"]
             process.currentDirectoryURL=URL(fileURLWithPath:"/")
             process.standardOutput=capture.pipe;process.standardError=FileHandle.nullDevice

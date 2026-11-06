@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import WattEnergyProtocol
 
 // Offscreen rendering of the actual status-item view for visual QA. No windows or input automation.
 @MainActor func renderMenuPreview(to path:String) {
@@ -56,20 +57,26 @@ import SwiftUI
     let frames:[Frame]=(0..<20).map {index -> Frame in
         let time=Date().addingTimeInterval(Double(index-19)*5)
         let power=PowerReading(volts:12,amps: -currents[index%currents.count],externalPower:false,sampledAt:time)
+        let energy=EnergyImpactSample(startedAt:time.addingTimeInterval(-1),endedAt:time,tasks:processes.enumerated().map {offset,process in
+            let score=Double(processes.count-offset)*0.7
+            return EnergyImpactTask(pid:process.pid,name:process.name,energyImpact:score,energyImpactPerSecond:score,processStartMicroseconds:process.start)
+        })
         return Frame(time:time,cpu:cpuValues[index%cpuValues.count],memory:21_000_000_000,
                      compressed:1_800_000_000,swap:0,
                      download:downloads[index%downloads.count]*1024,
                      upload:uploads[index%uploads.count]*1024,
-                     processes:processes,denied:0,power:power,elapsed:5,memoryAccounting:"app-wired-compressed")
+                     processes:processes,denied:0,power:power,elapsed:5,memoryAccounting:"app-wired-compressed",energyImpact:energy)
     }
     let model=Monitor(previewFrames:frames)
     let suite="watt-popup-render-"+UUID().uuidString
     let defaults=UserDefaults(suiteName:suite)!
     defer {defaults.removePersistentDomain(forName:suite)}
     let layout=PopupLayoutSettings(defaults:defaults)
+    // Keep the new score tile in the fixture's visible viewport; user layouts are untouched.
+    layout.place(.energyImpact,atVisibleIndex:4)
     NSAppearance(named:.darkAqua)!.performAsCurrentDrawingAppearance {
         let content=LiveView(monitor:model,open:{},configure:{},layout:layout).environment(\.colorScheme,.dark).background(Color(red:0.17,green:0.16,blue:0.18))
-        do {try renderHostedView(content,size:NSSize(width:380,height:710),to:path)}
+        do {try renderHostedView(content,size:NSSize(width:380,height:940),to:path)}
         catch {fputs("Popup preview failed: \(error)\n",stderr);exit(1)}
     }
 }

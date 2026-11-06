@@ -2,7 +2,7 @@ import Foundation
 import Combine
 
 enum PopupItemID:String,CaseIterable,Codable,Identifiable {
-    case cpu,memory,download,upload,batteryFlow,cpuProcesses,processCPUPower,applicationCPUPower,diskRead,diskWrite,memoryDetail
+    case cpu,memory,download,upload,batteryFlow,cpuProcesses,processCPUPower,applicationCPUPower,energyImpact,diskRead,diskWrite,memoryDetail
     var id:String {rawValue}
     var title:String {
         switch self {
@@ -14,6 +14,7 @@ enum PopupItemID:String,CaseIterable,Codable,Identifiable {
         case .cpuProcesses:return "CPU processes"
         case .processCPUPower:return "Process CPU power"
         case .applicationCPUPower:return "Applications CPU power"
+        case .energyImpact:return "Process Energy Impact"
         case .diskRead:return "Process disk reads"
         case .diskWrite:return "Process disk writes"
         case .memoryDetail:return "Memory details"
@@ -29,6 +30,7 @@ enum PopupItemID:String,CaseIterable,Codable,Identifiable {
         case .cpuProcesses:return "Processes ranked by CPU, per core"
         case .processCPUPower:return "Estimated CPU watts for individual processes"
         case .applicationCPUPower:return "CPU watts grouped across observed app helpers"
+        case .energyImpact:return "Apple’s relative process energy score"
         case .diskRead:return "Observed process reads, not total disk I/O"
         case .diskWrite:return "Observed process writes, not total disk I/O"
         case .memoryDetail:return "Compressed memory and swap history"
@@ -61,8 +63,8 @@ struct PopupLayoutRow:Identifiable,Equatable {
     private struct StoredEntry:Codable {var id:String;var visible:Bool;var span:String}
     private struct StoredLayout:Codable {var version:Int;var entries:[StoredEntry];var columnCount:Int?}
     static var defaultEntries:[PopupLayoutEntry] {
-        let visible:Set<PopupItemID>=[.cpu,.memory,.download,.upload,.batteryFlow,.processCPUPower]
-        let order:[PopupItemID]=[.cpu,.memory,.download,.upload,.batteryFlow,.processCPUPower,.cpuProcesses,.diskRead,.diskWrite,.memoryDetail,.applicationCPUPower]
+        let visible:Set<PopupItemID>=[.cpu,.memory,.download,.upload,.batteryFlow,.processCPUPower,.energyImpact]
+        let order:[PopupItemID]=[.cpu,.memory,.download,.upload,.batteryFlow,.processCPUPower,.energyImpact,.cpuProcesses,.diskRead,.diskWrite,.memoryDetail,.applicationCPUPower]
         return order.map {PopupLayoutEntry(id:$0,visible:visible.contains($0),span:.square)}
     }
     init(defaults suppliedDefaults:UserDefaults? = nil) {
@@ -75,7 +77,8 @@ struct PopupLayoutRow:Identifiable,Equatable {
                 guard let id=PopupItemID(rawValue:entry.id),seen.insert(id).inserted else {return nil}
                 return PopupLayoutEntry(id:id,visible:entry.visible,span:PopupTileSpan(rawValue:entry.span) ?? .square)
             }
-            entries=restored+Self.defaultEntries.filter {!seen.contains($0.id)}
+            // Newly introduced tiles stay in the palette for an existing saved layout.
+            entries=restored+Self.defaultEntries.filter {!seen.contains($0.id)}.map {PopupLayoutEntry(id:$0.id,visible:false,span:$0.span)}
             columnCount=min(6,max(2,stored.columnCount ?? 2))
         } else {entries=Self.defaultEntries;columnCount=2}
     }
