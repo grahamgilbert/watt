@@ -1,7 +1,9 @@
 #include <stdint.h>
 #include <sqlite3.h>
 typedef struct { uint64_t user, system, idle, memory, compressed, swap, rx, tx; } WattSystem;
-typedef struct { int32_t pid, parent; uint64_t start, cpu, footprint, read, written, energy_nj, idle_wakeups, interrupt_wakeups; int energy_available; char name[256]; } WattProcess;
+// Identity remains observable even when macOS withholds another user's counters.
+// Unavailable counters are zero-initialized and must be gated on metrics_available.
+typedef struct { int32_t pid, parent; uint32_t uid; uint64_t start, cpu, footprint, read, written, energy_nj, idle_wakeups, interrupt_wakeups; int metrics_available, wakeups_available, energy_available; char name[256]; } WattProcess;
 int watt_system(WattSystem *out);
 int watt_processes(WattProcess *out, int capacity, int *denied);
 

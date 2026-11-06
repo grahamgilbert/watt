@@ -13,10 +13,17 @@ final class EnergySession:NSObject,WattEnergyServiceProtocol {
         }
         controller.capture.capture(owner:id,reply:reply)
     }
+    func captureProcesses(withReply reply:@escaping (Data?,String?)->Void) {
+        guard let controller,NSXPCConnection.current() != nil else {
+            reply(nil,"The process client is not an authorized Watt release.");return
+        }
+        controller.processCapture.capture(owner:id,reply:reply)
+    }
 }
 final class EnergyHelper:NSObject,NSXPCListenerDelegate {
     let team:String
     let capture=PowermetricsCapture()
+    let processCapture=NativeProcessCapture()
     private let lock=NSLock()
     private var connections:[UUID:NSXPCConnection]=[:]
     private var idleGeneration=0
@@ -31,11 +38,12 @@ final class EnergyHelper:NSObject,NSXPCListenerDelegate {
         connection.invalidationHandler={ [weak self] in self?.disconnected(id) }
         lock.lock();connections[id]=connection;idleGeneration+=1;lock.unlock()
         capture.connected(owner:id)
+        processCapture.connected(owner:id)
         connection.resume();return true
     }
     private func disconnected(_ id:UUID) {
         lock.lock();connections.removeValue(forKey:id);lock.unlock()
-        capture.cancel(owner:id);scheduleIdleExit()
+        capture.cancel(owner:id);processCapture.cancel(owner:id);scheduleIdleExit()
     }
     private func scheduleIdleExit() {
         lock.lock();idleGeneration+=1;let generation=idleGeneration;lock.unlock()

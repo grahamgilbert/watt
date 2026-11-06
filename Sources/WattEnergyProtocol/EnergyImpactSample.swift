@@ -11,6 +11,9 @@ public enum EnergyServiceConfiguration {
 @objc public protocol WattEnergyServiceProtocol {
     // The client cannot select a command, arguments, interval, or output path.
     func capture(withReply reply:@escaping (Data?,String?)->Void)
+    // Available in helpers with native process telemetry support. Older helpers
+    // reject this selector; clients must handle the XPC error and use local data.
+    func captureProcesses(withReply reply:@escaping (Data?,String?)->Void)
 }
 public struct EnergyImpactTask:Codable,Identifiable,Sendable {
     public let pid:Int32
