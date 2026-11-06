@@ -56,10 +56,12 @@ struct PreferencesView:View {
     @ObservedObject var popupLayout:PopupLayoutSettings
     var energyCollector:EnergyImpactCollector?=nil
     var layoutPresenter:PopupLayoutEditorPresenter?=nil
+    var loginItems:LoginItemManager?=nil
     @StateObject private var layoutEditor=PopupLayoutEditorPresenter()
     var body:some View {
         Form {
             Section("General") {
+                if let loginItems {LoginItemControls(manager:loginItems)}
                 Picker("Sample interval",selection:$monitor.interval) {
                     Text("2 seconds").tag(2.0);Text("5 seconds").tag(5.0);Text("10 seconds").tag(10.0)
                 }
@@ -105,6 +107,28 @@ struct PreferencesView:View {
     private func enforceReadableWidth() {if settings.width<52 && settings.layout == "Ribbon" && settings.network && settings.networkNumbers && settings.metricNumbers {settings.width=52}}
     private func metricPicker(_ title:String,_ binding:Binding<String>)->some View {
         Picker(title,selection:binding) {ForEach(["CPU","Memory","Network","Battery power"],id:\.self){Text($0).tag($0)}}
+    }
+}
+
+private struct LoginItemControls:View {
+    @ObservedObject var manager:LoginItemManager
+    var body:some View {
+        Toggle("Open at login",isOn:Binding(get:{manager.isEnabled},set:{manager.setEnabled($0)}))
+            .disabled(!manager.isAvailable)
+            .accessibilityIdentifier("preferences.openAtLogin")
+        if !manager.isAvailable {
+            Text("Available in signed releases.").font(.caption).foregroundStyle(.secondary)
+        } else if manager.needsApproval {
+            HStack {
+                Text("Allow Watt in macOS Login Items to open at login.").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("System Settings…") {manager.openSettings()}.controlSize(.small)
+            }
+        }
+        if let error=manager.lastError {
+            Text(error).font(.caption).foregroundStyle(.orange).fixedSize(horizontal:false,vertical:true)
+                .accessibilityIdentifier("preferences.openAtLogin.error")
+        }
     }
 }
 

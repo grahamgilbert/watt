@@ -14,6 +14,8 @@ open dist/Watt.app
 
 Watt launches into the menu bar without opening or constructing Process Explorer. Click the menu bar item for the popup. Its controls are direct buttons: Open Process Explorer, Preferences and Quit. Preferences combines appearance, the sample interval, popup layout editing, and updates.
 
+Open at login is enabled by default on the first launch of a signed release. Change it in Preferences → General or macOS Login Items. Watt respects later opt-outs and opens only in the menu bar at login. macOS may require approval in System Settings. Development builds do not change login registration.
+
 ## One Process Explorer
 
 Live processes and history share one window and selection. Use Live for current readings. Choose a date/time and 5-minute, 15-minute, one-hour or two-hour window, then Inspect interval. Earlier/Later queries older SQLite records beyond the live cache. At cursor shows a recorded process snapshot and optional observed parent tree. Interval summary shows time-weighted CPU average, sampled CPU peak, CPU time, last/peak footprint, observed footprint growth and valid disk totals. Move the cursor to switch back to the point view within the same window. Select a process for CPU, memory and disk curves.

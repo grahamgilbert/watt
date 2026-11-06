@@ -151,6 +151,9 @@ struct LiveView:View {
     private let layoutPresenter=PopupLayoutEditorPresenter()
     lazy var updater=AppUpdater()
     let energyCollector=EnergyImpactCollector()
+    // Development copies share the preferences domain with the installed app.
+    // Only signed releases may change its real login registration.
+    private lazy var loginItems=LoginItemManager(isAvailable:energyCollector.isSignedBuild)
     private var energyIntervalSubscription:AnyCancellable?
     private var energySleepObservers:[NSObjectProtocol]=[]
     var ribbon:Ribbon?
@@ -190,6 +193,7 @@ struct LiveView:View {
         popover.delegate=self
         popover.behavior = .transient
         _ = updater
+        loginItems.applyDefaultIfNeeded()
         energyIntervalSubscription=monitor.$interval.removeDuplicates().sink { [weak self] interval in
             DispatchQueue.main.async {self?.energyCollector.start(interval:interval)}
         }
@@ -208,6 +212,7 @@ struct LiveView:View {
     }
     @objc private func showPreferences() {
         popover.performClose(nil)
+        loginItems.refreshStatus()
         if preferencesWindow == nil {
             let preferences=NSWindow(contentRect:NSRect(x:0,y:0,width:520,height:680),styleMask:[.titled,.closable],backing:.buffered,defer:false)
             preferences.title="Watt Preferences"
@@ -216,7 +221,7 @@ struct LiveView:View {
             preferences.center();preferencesWindow=preferences
         }
         if preferencesWindow?.contentView == nil {
-            preferencesWindow?.contentView=NSHostingView(rootView:PreferencesView(settings:menuSettings,monitor:monitor,updater:updater,popupLayout:popupLayout,energyCollector:energyCollector,layoutPresenter:layoutPresenter))
+            preferencesWindow?.contentView=NSHostingView(rootView:PreferencesView(settings:menuSettings,monitor:monitor,updater:updater,popupLayout:popupLayout,energyCollector:energyCollector,layoutPresenter:layoutPresenter,loginItems:loginItems))
         }
         NSApp.activate();preferencesWindow?.makeKeyAndOrderFront(nil)
     }
@@ -244,6 +249,7 @@ struct LiveView:View {
         }
     }
     func applicationDidBecomeActive(_ notification:Notification) {
+        loginItems.refreshStatus()
         energyCollector.refreshStatus()
         if energyCollector.isInstalled && !energyCollector.isRunning {energyCollector.start(interval:monitor.interval)}
     }
