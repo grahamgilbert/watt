@@ -1,6 +1,21 @@
-<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0"><channel><title>Watt Prereleases</title><link>https://github.com/grahamgilbert/watt</link><description>Watt updates</description></channel></rss>
-<!-- sparkle-signatures:
-edSignature: Qfdn6NdqmbMdQRQd8WNZxVuiltsFA+Dj0j2yk81lDS3ubSRxLhipa+LMzmWNwEwu5EKZiLWcR4q2tt3GLLWsAw==
-length: 204
+<?xml version='1.0' encoding='utf-8'?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+  <channel>
+    <title>Watt Prereleases</title>
+    <link>https://github.com/grahamgilbert/watt</link>
+    <description>Watt updates</description>
+    <item>
+      <title>Watt 0.1.0</title>
+      <pubDate>Fri, 06 Nov 2026 06:12:23 +0000</pubDate>
+      <sparkle:version>8</sparkle:version>
+      <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <link>https://github.com/grahamgilbert/watt/releases/tag/v0.1.0</link>
+      <sparkle:releaseNotesLink sparkle:edSignature="/f+uDno0xvdieeyg9BRrTluAyRNuyA4px5yB1DXaGwL4/FWOqRs60P0jea2GjxYGv0buRgbeGo1KZZne/IrEAw==" sparkle:length="2845">https://github.com/grahamgilbert/watt/releases/download/v0.1.0/release-notes-0.1.0.html</sparkle:releaseNotesLink>
+      <enclosure url="https://github.com/grahamgilbert/watt/releases/download/v0.1.0/Watt-0.1.0.dmg" length="4342289" type="application/octet-stream" sparkle:edSignature="7F+qmv9/7CjMlWYOw7/ZqFjp7KAE5TcKiHP9oIP75ydsK9CSxY2Z19/aFCN6TjvVEbcHzCDgIpa7eW4RWvGUAw==" />
+    </item>
+  </channel>
+</rss><!-- sparkle-signatures:
+edSignature: hSnutA3fGqZ1PeRpx6FMLyglvDLnU/WWe590nJtG2bbFWSjyZ8n0h3pDCWzP9m70Hy+kS4POl9i2ywMDamEYAg==
+length: 1210
 -->
