@@ -16,26 +16,131 @@ HARNESS = pathlib.Path("Sources/Watt/UIPerformanceBenchmark.swift")
 PLOT_ADAPTER = pathlib.Path("Sources/Watt/ExplorerPlotCanvas.swift")
 
 
-def prepare_baseline_renderer(baseline, candidate=ROOT):
-    """Use Quartz for the short-lived Canvas baseline that hosted Intel GPUs cannot render.
+# Exact pre-performance Swift Charts trace and pointer overlay shipped in 0.1.1.
+# Unsupported source shapes fail rather than silently substituting candidate algorithms.
+LEGACY_CHART_TRACE_SHA256 = "c89b39b3927600a28777f2b24ed03eda78a6097d8f5ac3874695a7727f4e8842"
+LEGACY_CHART_TRACK_SHA256 = "dc5570c539cf2c7e10acf0795ade15e1704cd64790a2386f05203e8fdc74d0e8"
+LEGACY_CHART_BODY = r"""    var body:some View {
+        // Retain this revision's original points/domain calculations, including the
+        // domain's independent point scan. Only the unsupported drawing backend changes.
+        let renderedPoints=points
+        let renderedDomain=domain
+        VStack(spacing:3) {
+            ExplorerPlotCanvas {context,size in
+                let duration=max(0.001,range.duration)
+                let height=max(0.001,renderedDomain.upperBound-renderedDomain.lowerBound)
+                func position(_ point:ExplorerPoint)->CGPoint {
+                    CGPoint(x:point.time.timeIntervalSince(range.start)/duration*size.width,
+                            y:size.height-(point.value-renderedDomain.lowerBound)/height*size.height)
+                }
+                for segment in Dictionary(grouping:renderedPoints,by:\.series).values {
+                    guard let first=segment.first,let last=segment.last else {continue}
+                    var line=Path();line.move(to:position(first))
+                    for point in segment.dropFirst() {line.addLine(to:position(point))}
+                    if metric=="CPU" && processID==nil {
+                        var area=line
+                        area.addLine(to:CGPoint(x:position(last).x,y:size.height))
+                        area.addLine(to:CGPoint(x:position(first).x,y:size.height));area.closeSubpath()
+                        context.fill(area,with:.color(color.opacity(0.07)))
+                    }
+                    context.stroke(line,with:.color(first.channel=="write" ? ExplorerPalette.energy : color),lineWidth:1.5)
+                }
+                if let cursor,range.start<=cursor,cursor<=range.end {
+                    let x=cursor.timeIntervalSince(range.start)/duration*size.width
+                    var line=Path();line.move(to:CGPoint(x:x,y:0));line.addLine(to:CGPoint(x:x,y:size.height))
+                    context.stroke(line,with:.color(Color.secondary.opacity(0.55)),lineWidth:1)
+                }
+                for gap in gaps where gap.start<range.end && (gap.end ?? Date())>range.start {
+                    let lower=max(range.start,gap.start),upper=min(range.end,gap.end ?? Date())
+                    let x=lower.timeIntervalSince(range.start)/duration*size.width
+                    context.fill(Path(CGRect(x:x,y:0,width:upper.timeIntervalSince(lower)/duration*size.width,height:size.height)),with:.color(.orange.opacity(0.08)))
+                }
+            }.clipped()
+            if showXAxis {
+                GeometryReader {geometry in
+                    ForEach(0..<5,id:\.self) {index in
+                        let date=range.start.addingTimeInterval(range.duration*Double(index)/4)
+                        Text(date.formatted(.dateTime.hour().minute().second()))
+                            .font(.system(size:9)).foregroundStyle(.secondary)
+                            .frame(width:90,alignment:index==0 ? .leading : index==4 ? .trailing : .center)
+                            .position(x:index==0 ? 45 : index==4 ? geometry.size.width-45 : geometry.size.width*Double(index)/4,y:6)
+                    }
+                }.frame(height:13)
+            }
+        }
+    }
+}
 
-    Preserve its plotting operations and data preparation. Never rewrite the candidate,
-    or replace an existing native backend in a later baseline.
-    """
+"""
+LEGACY_CHART_OVERLAY = r"""                .chartOverlay {proxy in
+                    GeometryReader {geometry in
+                        Rectangle().fill(.clear).contentShape(Rectangle()).gesture(DragGesture(minimumDistance:0).onChanged {event in
+                            guard let plot=proxy.plotFrame else {return}
+                            let x=min(max(0,event.location.x-geometry[plot].origin.x),geometry[plot].width)
+                            if let date:Date=proxy.value(atX:x),range.contains(date) {onSelect(date)}
+                        })
+                    }
+                }"""
+LEGACY_QUARTZ_OVERLAY = r"""                .overlay {
+                    GeometryReader {geometry in
+                        Rectangle().fill(.clear).contentShape(Rectangle()).gesture(DragGesture(minimumDistance:0).onChanged {event in
+                            guard geometry.size.width>0 else {return}
+                            let fraction=min(1,max(0,event.location.x/geometry.size.width))
+                            onSelect(range.start.addingTimeInterval(range.duration*fraction))
+                        })
+                    }
+                }"""
+
+
+def normalize_legacy_charts(source):
+    """Replace only the known drawing body/ChartProxy overlay; leave model work intact."""
+    try:
+        trace_start = source.index("struct ExplorerTrace:View {")
+        trace_end = source.index("// Existing callers can keep", trace_start)
+        track_start = source.index("private struct ExplorerSystemTrack:View {")
+        track_end = source.index("\nprivate struct ProcessInspector", track_start)
+    except ValueError as error:
+        raise ValueError("Unknown baseline Swift Charts layout; refusing to change its workload.") from error
+    trace, track = source[trace_start:trace_end], source[track_start:track_end]
+    if (hashlib.sha256(trace.encode()).hexdigest() != LEGACY_CHART_TRACE_SHA256 or
+            hashlib.sha256(track.encode()).hexdigest() != LEGACY_CHART_TRACK_SHA256):
+        raise ValueError("Unknown baseline Swift Charts implementation; refusing to change its workload.")
+    marker = "    var body:some View {"
+    if trace.count(marker) != 1 or track.count(LEGACY_CHART_OVERLAY) != 1:
+        raise ValueError("Unknown baseline Swift Charts body or pointer overlay.")
+    # Everything before the body includes the unmodified old points/domain properties.
+    rewritten_trace = trace[:trace.index(marker)] + LEGACY_CHART_BODY
+    return source.replace(trace, rewritten_trace, 1).replace(LEGACY_CHART_OVERLAY, LEGACY_QUARTZ_OVERLAY, 1)
+
+
+def prepare_baseline_renderer(baseline, candidate=ROOT):
+    """Normalize unsupported historical rendering backends without candidate model changes."""
     path = baseline / "Sources/Watt/ProcessExplorerView.swift"
     source = path.read_text()
-    marker = "Canvas {context,size in"
-    if marker not in source or "ExplorerPlotCanvas {context,size in" in source:
+    if "ExplorerPlotCanvas {context,size in" in source:
         return {"applied": False}
-    if source.count(marker) != 1:
-        raise ValueError("Unknown baseline Canvas layout; refusing to change its workload.")
+    marker = "Canvas {context,size in"
+    if marker in source:
+        if source.count(marker) != 1:
+            raise ValueError("Unknown baseline Canvas layout; refusing to change its workload.")
+        rewritten = source.replace(marker, "ExplorerPlotCanvas {context,size in", 1)
+        previous_backend = "swiftui-canvas"
+        reason = "Hosted Intel Metal unavailable; plotting operations and data preparation preserved."
+    elif "Chart {" in source:
+        rewritten = normalize_legacy_charts(source)
+        previous_backend = "swift-charts"
+        reason = "Hosted Intel Metal unavailable; original points/domain preparation retained, drawing and pointer overlay normalized."
+    else:
+        return {"applied": False}
     adapter = (candidate / PLOT_ADAPTER).read_bytes()
     target = baseline / PLOT_ADAPTER
     if target.is_symlink():
         raise ValueError("Unsafe baseline plotting adapter destination.")
     target.write_bytes(adapter)
-    path.write_text(source.replace(marker, "ExplorerPlotCanvas {context,size in", 1))
-    return {"applied": True, "backend": "native-quartz", "adapter_sha256": hashlib.sha256(adapter).hexdigest()}
+    path.write_text(rewritten)
+    return {"applied": True, "backend": "native-quartz", "previous_backend": previous_backend,
+            "reason": reason, "source_sha256": hashlib.sha256(source.encode()).hexdigest(),
+            "adapter_sha256": hashlib.sha256(adapter).hexdigest()}
 
 
 def run(command, *, cwd=ROOT, log=None, timeout=900, env=None):

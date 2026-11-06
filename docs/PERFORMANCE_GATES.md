@@ -58,13 +58,17 @@ python3 -m unittest discover -s Tests/Performance -v
 `scripts/ci-performance.py` is for an Intel macOS runner with a full checkout and
 the candidate's release app already built in `dist/Watt.app`.
 
-The short-lived Canvas implementation cannot rasterize on the hosted Intel GPU
-(`Target device architecture is nil`). When that implementation is the baseline,
-the runner swaps only its Canvas drawing adapter for the same Quartz adapter used
-by the candidate. Existing drawing operations and data preparation remain intact.
-The adaptation and adapter hash are recorded in the artifact; existing native
-baselines and candidate code are never patched. That transitional comparison
-does not measure the Canvas-to-Quartz backend change itself.
+Historical Swift Charts and Canvas plots cannot rasterize on the hosted Intel
+GPU (`Target device architecture is nil`). The runner normalizes those supported
+baselines to the same Quartz drawing adapter used by the candidate. For the
+released Swift Charts baseline, the original points/domain calculations remain
+byte-for-byte unchanged; only drawing and the ChartProxy input overlay change.
+That migration is guarded by exact source hashes, and unknown layouts fail.
+
+The artifact records the prior backend, source hash, adapter hash and reason.
+Existing native baselines and candidate code are never patched. These transitional
+comparisons exercise baseline data processing and UI rendering with a common
+backend; they do not measure the legacy Swift Charts/Canvas rendering cost itself.
 
 Initial hosted-runner calibration (run 42247447132): baseline median 507.79 ms
 per update, candidate 502.13 ms, resident memory about 173 MiB. The provisional
