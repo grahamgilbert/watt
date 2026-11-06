@@ -129,7 +129,7 @@ def main():
         command = [sys.executable, str(ROOT / "scripts/check-performance.py"), "--baseline"]
         command += [str(OUTPUT / f"baseline-{index}.json") for index in range(1, 4)]
         command += ["--candidate"] + [str(OUTPUT / f"candidate-{index}.json") for index in range(1, 4)]
-        command += ["--max-cpu-ms", "500", "--max-resident-mib", "400", "--max-peak-mib", "512",
+        command += ["--max-cpu-ms", "650", "--max-resident-mib", "400", "--max-peak-mib", "512",
                     "--output", str(OUTPUT / "summary.json")]
         return subprocess.run(command, cwd=ROOT).returncode
 

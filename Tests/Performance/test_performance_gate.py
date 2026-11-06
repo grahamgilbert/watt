@@ -32,7 +32,7 @@ class PerformanceGateTests(unittest.TestCase):
                     paths[kind].append(str(path))
             output = directory / "summary.json"
             result = subprocess.run([sys.executable, str(SCRIPT), "--baseline", *paths["baseline"],
-                                     "--candidate", *paths["candidate"], "--max-cpu-ms", "500",
+                                     "--candidate", *paths["candidate"], "--max-cpu-ms", "650",
                                      "--max-resident-mib", "400", "--max-peak-mib", "512",
                                      "--output", str(output)], capture_output=True)
             return result.returncode, json.loads(output.read_text())
@@ -54,7 +54,7 @@ class PerformanceGateTests(unittest.TestCase):
 
     def test_absolute_budget_rejects_an_improved_but_still_expensive_candidate(self):
         code, report = self.invoke([self.measurement(cpu_ms_per_update=800)] * 3,
-                                   [self.measurement(cpu_ms_per_update=600)] * 3)
+                                   [self.measurement(cpu_ms_per_update=700)] * 3)
         self.assertEqual(code, 1)
         self.assertTrue(any("absolute budget" in failure for failure in report["failures"]))
 

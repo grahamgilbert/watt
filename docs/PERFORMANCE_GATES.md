@@ -21,7 +21,7 @@ high-water mark. Build time is excluded.
 
 | Measurement | Allowed relative variation | Candidate absolute ceiling |
 | --- | --- | --- |
-| CPU milliseconds per update | baseline × 1.20 + 2 ms | 500 ms |
+| CPU milliseconds per update | baseline × 1.20 + 2 ms | 650 ms |
 | Resident memory | baseline × 1.15 + 8 MiB | 400 MiB |
 | Sampled peak resident memory | baseline × 1.15 + 8 MiB | 512 MiB |
 
@@ -65,3 +65,10 @@ by the candidate. Existing drawing operations and data preparation remain intact
 The adaptation and adapter hash are recorded in the artifact; existing native
 baselines and candidate code are never patched. That transitional comparison
 does not measure the Canvas-to-Quartz backend change itself.
+
+Initial hosted-runner calibration (run 42247447132): baseline median 507.79 ms
+per update, candidate 502.13 ms, resident memory about 173 MiB. The provisional
+500 ms ceiling rejected this non-regression, so the initial Intel ceiling is
+650 ms. The relative limit remains baseline × 1.20 + 2 ms; it was not relaxed.
+The fixed-workload CPU figure includes forced offscreen UI rasterization and
+is not the app’s continuous background CPU percentage.
