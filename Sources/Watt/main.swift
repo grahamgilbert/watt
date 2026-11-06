@@ -285,7 +285,7 @@ struct LiveView:View {
     func toggle() {if popover.isShown{popover.performClose(nil)}else if let button=item.button{showLiveContent();NSApp.activate();popover.show(relativeTo:button.bounds,of:button,preferredEdge:.minY);popover.contentViewController?.view.window?.makeKey()}}
     func showExplorer() {
         popover.performClose(nil)
-        if window==nil {let w=NSWindow(contentRect:NSRect(x:0,y:0,width:1440,height:900),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false);w.title="Watt · Process Explorer";w.delegate=self;w.contentView=nil;w.isReleasedWhenClosed=false;w.center();window=w}
+        if window==nil {explorerControls.center=(monitor.liveFrame?.time ?? monitor.historyBounds?.end ?? Date()).addingTimeInterval(-explorerControls.duration/2);let w=NSWindow(contentRect:NSRect(x:0,y:0,width:1440,height:900),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false);w.title="Watt · Process Explorer";w.delegate=self;w.contentView=nil;w.isReleasedWhenClosed=false;w.center();window=w}
         monitor.restoreHistoryDetailsIfNeeded()
         window?.title="Watt · Process Explorer"
         if window?.contentView == nil {window?.contentView=NSHostingView(rootView:ProcessExplorerView(monitor:monitor,controls:explorerControls))}
