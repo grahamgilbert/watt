@@ -563,7 +563,7 @@ struct ExplorerTrace:View {
     var body:some View {
         let data=(traceCache ?? localCache).data(frames:frames,gaps:gaps,processID:processID,metric:metric)
         VStack(spacing:3) {
-            Canvas {context,size in
+            ExplorerPlotCanvas {context,size in
                 let duration=max(0.001,range.duration),height=max(0.001,data.domain.upperBound-data.domain.lowerBound)
                 func position(_ point:ExplorerPoint)->CGPoint {
                     CGPoint(x:point.time.timeIntervalSince(range.start)/duration*size.width,y:size.height-(point.value-data.domain.lowerBound)/height*size.height)

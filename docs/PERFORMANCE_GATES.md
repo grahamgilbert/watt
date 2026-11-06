@@ -10,7 +10,7 @@ builds both in release configuration with the same toolchain, and runs each
 revision three times. The run order is baseline/candidate/candidate/baseline/
 baseline/candidate to reduce order effects. Every process performs two unmeasured
 warmup updates before measuring 12 Explorer updates, each with 120 frames and 800
-processes. The harness uses fixture readings and an offscreen native window. It
+processes. Explorer plots use native Quartz drawing so the actual offscreen UI can be rasterized without Metal on hosted Intel runners. The harness uses fixture readings and an offscreen native window. It
 does not open the recording database, register a helper, collect live energy
 readings, or test battery life.
 
@@ -57,3 +57,11 @@ python3 -m unittest discover -s Tests/Performance -v
 
 `scripts/ci-performance.py` is for an Intel macOS runner with a full checkout and
 the candidate's release app already built in `dist/Watt.app`.
+
+The short-lived Canvas implementation cannot rasterize on the hosted Intel GPU
+(`Target device architecture is nil`). When that implementation is the baseline,
+the runner swaps only its Canvas drawing adapter for the same Quartz adapter used
+by the candidate. Existing drawing operations and data preparation remain intact.
+The adaptation and adapter hash are recorded in the artifact; existing native
+baselines and candidate code are never patched. That transitional comparison
+does not measure the Canvas-to-Quartz backend change itself.

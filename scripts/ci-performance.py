@@ -13,6 +13,29 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "dist" / "performance"
 HARNESS = pathlib.Path("Sources/Watt/UIPerformanceBenchmark.swift")
+PLOT_ADAPTER = pathlib.Path("Sources/Watt/ExplorerPlotCanvas.swift")
+
+
+def prepare_baseline_renderer(baseline, candidate=ROOT):
+    """Use Quartz for the short-lived Canvas baseline that hosted Intel GPUs cannot render.
+
+    Preserve its plotting operations and data preparation. Never rewrite the candidate,
+    or replace an existing native backend in a later baseline.
+    """
+    path = baseline / "Sources/Watt/ProcessExplorerView.swift"
+    source = path.read_text()
+    marker = "Canvas {context,size in"
+    if marker not in source or "ExplorerPlotCanvas {context,size in" in source:
+        return {"applied": False}
+    if source.count(marker) != 1:
+        raise ValueError("Unknown baseline Canvas layout; refusing to change its workload.")
+    adapter = (candidate / PLOT_ADAPTER).read_bytes()
+    target = baseline / PLOT_ADAPTER
+    if target.is_symlink():
+        raise ValueError("Unsafe baseline plotting adapter destination.")
+    target.write_bytes(adapter)
+    path.write_text(source.replace(marker, "ExplorerPlotCanvas {context,size in", 1))
+    return {"applied": True, "backend": "native-quartz", "adapter_sha256": hashlib.sha256(adapter).hexdigest()}
 
 
 def run(command, *, cwd=ROOT, log=None, timeout=900, env=None):
@@ -73,6 +96,8 @@ def main():
                 raise ValueError("The baseline main.swift has no unique benchmark injection point.")
             hook = 'if CommandLine.arguments.contains("--benchmark-ui") {MainActor.assumeIsolated {runUIPerformanceBenchmark()};exit(0)}\n'
             main_path.write_text(source.replace(marker, hook + marker, 1))
+        metadata["baseline_renderer_compatibility"] = prepare_baseline_renderer(baseline)
+        (OUTPUT / "environment.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
         # Match the source workload exactly while preserving each revision's app implementation.
         (OUTPUT / "harness.swift").write_bytes(harness)
         run(["zsh", "scripts/build-app.sh", "release"], cwd=baseline, log=OUTPUT / "baseline-build.log",
