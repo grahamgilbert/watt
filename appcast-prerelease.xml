@@ -5,6 +5,16 @@
     <link>https://github.com/grahamgilbert/watt</link>
     <description>Watt updates</description>
     <item>
+      <title>Watt 0.1.2</title>
+      <pubDate>Fri, 06 Nov 2026 17:22:29 +0000</pubDate>
+      <sparkle:version>10</sparkle:version>
+      <sparkle:shortVersionString>0.1.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <link>https://github.com/grahamgilbert/watt/releases/tag/v0.1.2</link>
+      <sparkle:releaseNotesLink sparkle:edSignature="0isnIbgCzReqh9ipAJ4uVWRO9E5qzODW3DZ5SEJqTYzkxOR8RsJOW7jFsmuxH9ajrbp43HPRZGt9iKd8zkTRBg==" sparkle:length="1643">https://github.com/grahamgilbert/watt/releases/download/v0.1.2/release-notes-0.1.2.html</sparkle:releaseNotesLink>
+      <enclosure url="https://github.com/grahamgilbert/watt/releases/download/v0.1.2/Watt-0.1.2.dmg" length="4723362" type="application/octet-stream" sparkle:edSignature="ZtBu0UdPTmQXJOdGJVcv+21sQI+hoEP+g/wz2LBmUUd/X6x+0N4Uxvootmj3drQtskFhHKd2/yJkuKh2skXeDQ==" />
+    </item>
+    <item>
       <title>Watt 0.1.1</title>
       <pubDate>Fri, 06 Nov 2026 06:30:07 +0000</pubDate>
       <sparkle:version>9</sparkle:version>
@@ -26,6 +36,6 @@
     </item>
   </channel>
 </rss><!-- sparkle-signatures:
-edSignature: Cre8crYZTMjEkyHaxMqNZ5hy9/vI7yg2utPCw+JopYBejKBTTakKJYmej4EWILj/tmqYU4FHiNkw07zrWPJoCg==
-length: 2127
+edSignature: HZSk9kIXWaxnMHRu3NBo0goe411gL/1ORPzFlwPjMbeRG2aA6EIit9Sv+6Gdz8QJr1e40L/hGk7GDRaz9xcHAw==
+length: 3045
 -->
