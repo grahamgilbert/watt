@@ -7,7 +7,10 @@ import WattEnergyProtocol
 // Keep this harness identical in the baseline and candidate builds used by the CI gate.
 @MainActor func runUIPerformanceBenchmark() {
     func cpuSeconds()->Double {
-        var usage=rusage();getrusage(RUSAGE_SELF,&usage)
+        var usage=rusage()
+        guard getrusage(RUSAGE_SELF,&usage)==0 else {
+            fputs("UI benchmark failed: could not read process CPU usage.\n",stderr);exit(1)
+        }
         return Double(usage.ru_utime.tv_sec+usage.ru_stime.tv_sec)+Double(usage.ru_utime.tv_usec+usage.ru_stime.tv_usec)/1e6
     }
     func residentBytes()->UInt64 {
@@ -18,7 +21,10 @@ import WattEnergyProtocol
                 task_info(mach_task_self_,task_flavor_t(MACH_TASK_BASIC_INFO),$0,&count)
             }
         }
-        return result==KERN_SUCCESS ? UInt64(info.resident_size) : 0
+        guard result==KERN_SUCCESS,info.resident_size>0 else {
+            fputs("UI benchmark failed: could not read resident memory.\n",stderr);exit(1)
+        }
+        return UInt64(info.resident_size)
     }
     let origin=Date(timeIntervalSince1970:1_800_000_000)
     let processStart=UInt64((origin.timeIntervalSince1970-60)*1e6)

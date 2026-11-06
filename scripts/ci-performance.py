@@ -109,6 +109,7 @@ def main():
             counters[revision] += 1
             stem = f"{revision}-{counters[revision]}"
             output = OUTPUT / (stem + ".json")
+            output.unlink(missing_ok=True)
             try:
                 process = subprocess.run([str(executables[revision]), "--benchmark-ui", "--benchmark-output", str(output)],
                                          cwd=ROOT, capture_output=True, text=True, timeout=180)
