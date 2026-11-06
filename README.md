@@ -14,7 +14,7 @@ open dist/Watt.app
 
 Watt launches into the menu bar without opening or constructing Process Explorer. Click the menu bar item for the popup. Its controls are direct buttons: Open Process Explorer, Preferences and Quit. Preferences combines appearance, the sample interval, popup layout editing, and updates.
 
-Open at login is enabled by default on the first launch of a signed release. Change it in Preferences → General or macOS Login Items. Watt respects later opt-outs and opens only in the menu bar at login. macOS may require approval in System Settings. Development builds do not change login registration.
+Open at login is enabled by default on the first launch of an Apple-signed app build, including Apple Development and Developer ID builds. Change it in Preferences → General or macOS Login Items. Watt respects later opt-outs and opens only in the menu bar at login. macOS may require approval in System Settings. Ad hoc and unbundled command-line builds do not change login registration.
 
 ## One Process Explorer
 

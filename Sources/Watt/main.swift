@@ -151,9 +151,9 @@ struct LiveView:View {
     private let layoutPresenter=PopupLayoutEditorPresenter()
     lazy var updater=AppUpdater()
     let energyCollector=EnergyImpactCollector()
-    // Development copies share the preferences domain with the installed app.
-    // Only signed releases may change its real login registration.
-    private lazy var loginItems=LoginItemManager(isAvailable:energyCollector.isSignedBuild)
+    // Ad hoc copies share preferences with the installed app; only an eligible
+    // Apple-signed app bundle may change the real login registration.
+    private lazy var loginItems=LoginItemManager(isAvailable:LoginItemManager.isSignedApp)
     private var energyIntervalSubscription:AnyCancellable?
     private var energySleepObservers:[NSObjectProtocol]=[]
     var ribbon:Ribbon?
@@ -301,6 +301,19 @@ struct LiveView:View {
 
 if CommandLine.arguments.contains("--benchmark-ui") {
     MainActor.assumeIsolated {runUIPerformanceBenchmark()}
+    exit(0)
+}
+if CommandLine.arguments.contains("--diagnose-login") {
+    MainActor.assumeIsolated {
+        let manager=LoginItemManager(isAvailable:LoginItemManager.isSignedApp)
+        let report:[String:Any]=["bundle":Bundle.main.bundleURL.path,
+            "bundleIdentifier":Bundle.main.bundleIdentifier ?? "unbundled",
+            "status":manager.status.rawValue,"eligible":manager.isAvailable,
+            "initialSetupCompleted":manager.initialSetupCompleted]
+        guard let data=try? JSONSerialization.data(withJSONObject:report,options:[.sortedKeys]),
+              let text=String(data:data,encoding:.utf8) else {exit(1)}
+        print(text)
+    }
     exit(0)
 }
 if CommandLine.arguments.contains("--diagnose-settings") {

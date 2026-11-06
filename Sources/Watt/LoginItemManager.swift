@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import Security
 import ServiceManagement
 
 @MainActor protocol LoginItemService {
@@ -19,6 +20,37 @@ import ServiceManagement
 
 @MainActor final class LoginItemManager:ObservableObject {
     static let setupKey="loginItem.initialSetupCompleted"
+    // Main-app login items accept ordinary Apple-signed app builds. The energy
+    // helper has a separate Developer ID policy which does not apply here.
+    static var isSignedApp:Bool {
+        let bundle=Bundle.main
+        guard bundle.infoDictionary?["CFBundlePackageType"] as? String == "APPL",
+              bundle.bundleURL.pathExtension.lowercased()=="app",
+              bundle.bundleIdentifier==MenuBarSettings.preferencesDomain else {return false}
+        var code:SecCode?
+        guard SecCodeCopySelf([], &code)==errSecSuccess,let code else {return false}
+        var staticCode:SecStaticCode?
+        guard SecCodeCopyStaticCode(code,[],&staticCode)==errSecSuccess,let staticCode else {return false}
+        var information:CFDictionary?
+        guard SecCodeCopySigningInformation(staticCode,SecCSFlags(rawValue:kSecCSSigningInformation),&information)==errSecSuccess,
+              let info=information as? [String:Any],
+              let requirement=signingRequirement(bundleURL:bundle.bundleURL,bundleIdentifier:bundle.bundleIdentifier,
+                    signingIdentifier:info[kSecCodeInfoIdentifier as String] as? String,
+                    team:info[kSecCodeInfoTeamIdentifier as String] as? String) else {return false}
+        return SecCodeCheckValidity(code,[],requirement)==errSecSuccess
+    }
+    static func signingRequirement(bundleURL:URL,bundleIdentifier:String?,signingIdentifier:String?,team:String?)->SecRequirement? {
+        guard bundleURL.pathExtension.lowercased()=="app",
+              bundleIdentifier==MenuBarSettings.preferencesDomain,
+              signingIdentifier==MenuBarSettings.preferencesDomain,
+              let team,team.range(of:"^[A-Z0-9]{10}$",options:.regularExpression) != nil else {return nil}
+        // Both Apple Development and Developer ID chains satisfy this requirement;
+        // ad hoc signatures do not have an Apple anchor or certificate team.
+        let text=#"anchor apple generic and identifier "com.grahamgilbert.Watt" and certificate leaf[subject.OU] = "\#(team)""#
+        var requirement:SecRequirement?
+        guard SecRequirementCreateWithString(text as CFString,[],&requirement)==errSecSuccess else {return nil}
+        return requirement
+    }
     @Published private(set) var status:SMAppService.Status
     @Published private(set) var lastError:String?
     let isAvailable:Bool
@@ -27,6 +59,7 @@ import ServiceManagement
 
     var isEnabled:Bool {status == .enabled}
     var needsApproval:Bool {status == .requiresApproval}
+    var initialSetupCompleted:Bool {defaults.bool(forKey:Self.setupKey)}
 
     // Reading settings never registers anything. Only the real app's launch path
     // applies the default; tests, previews and benchmarks have no login side effects.

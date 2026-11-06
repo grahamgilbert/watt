@@ -117,7 +117,7 @@ private struct LoginItemControls:View {
             .disabled(!manager.isAvailable)
             .accessibilityIdentifier("preferences.openAtLogin")
         if !manager.isAvailable {
-            Text("Available in signed releases.").font(.caption).foregroundStyle(.secondary)
+            Text("Available in signed app builds.").font(.caption).foregroundStyle(.secondary)
         } else if manager.needsApproval {
             HStack {
                 Text("Allow Watt in macOS Login Items to open at login.").font(.caption).foregroundStyle(.secondary)
