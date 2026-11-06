@@ -37,7 +37,13 @@ empty check.
 
 Every attempted check saves its base/candidate SHAs, harness hash, toolchain,
 raw JSON measurements, build/process logs and comparison summary in a
-`performance-...` workflow artifact, including failures. `scripts/check-performance.py`
+`performance-...` workflow artifact, including failures. After a gate failure,
+CI also runs the unchanged candidate UI fixture once under a bounded five-second
+`sample` capture. Its stack report, stdout/stderr and public runner hardware fields
+are retained in `diagnostics/`. This best-effort profile is separate from the gate;
+it cannot replace measurements or change pass/fail results. Short-lived processes
+may produce only a partial stack report, recorded explicitly in its metadata.
+`scripts/check-performance.py`
 has regression tests that deliberately exceed CPU, resident-memory and peak-memory
 limits and verify that those candidates are rejected.
 

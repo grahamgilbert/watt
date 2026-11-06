@@ -34,7 +34,13 @@ jobs:
           architectures=$(lipo -archs dist/Watt.app/Contents/MacOS/Watt)
           [[ " $architectures " == *" arm64 "* && " $architectures " == *" x86_64 "* ]]
       - name: CPU and memory regression gate
+        id: performance_gate
         run: python3 scripts/ci-performance.py
+      - name: Profile failed UI performance check
+        if: ${{ failure() && steps.performance_gate.outcome == 'failure' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        run: python3 scripts/profile-ui-performance.py
       - name: Preserve performance evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
