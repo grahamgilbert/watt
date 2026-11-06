@@ -94,10 +94,10 @@ final class Collector {
 }
 
 @MainActor final class Monitor: ObservableObject {
-    @Published var frames:[Frame]=[]
+    @Published var frames:[Frame]=[] {didSet{invalidateCurrentSnapshot()}}
     @Published var liveFrame:Frame?
-    @Published var historyFrames:[Frame]=[]
-    @Published var historyRange:DateInterval?
+    @Published var historyFrames:[Frame]=[] {didSet{invalidateCurrentSnapshot()}}
+    @Published var historyRange:DateInterval? {didSet{invalidateCurrentSnapshot()}}
     @Published var historyBounds:DateInterval?
     @Published var historySummaries:[ProcessSummary]=[]
     @Published var historyLoading=false
@@ -107,8 +107,8 @@ final class Collector {
     @Published var paused=false
     @Published var error:String?
     @Published var interval=5.0 {didSet {UserDefaults.standard.set(interval,forKey:"recording.interval");scheduleSample(after:0)}}
-    @Published var selected:Date?
-    @Published var gaps:[RecordingGap]=[]
+    @Published var selected:Date? {didSet{invalidateCurrentSnapshot()}}
+    @Published var gaps:[RecordingGap]=[] {didSet{invalidateCurrentSnapshot()}}
     @Published var storageBytes:Int64=0
     private var sleeping=false
     private var observers:[NSObjectProtocol]=[]
@@ -116,9 +116,21 @@ final class Collector {
     private var timer:Timer?
     private var collecting=false
     private nonisolated let backend=RecorderBackend()
+    private var cachedCurrentSnapshot:Frame?
+    private var currentSnapshotResolved=false
+    private(set) var snapshotLookupCount=0
+    private func invalidateCurrentSnapshot() {
+        cachedCurrentSnapshot=nil;currentSnapshotResolved=false
+    }
     var current:Frame? {
-        if let selected {return HistoryAnalysis.snapshot(at:selected,frames:visibleFrames,gaps:gaps)}
-        return historyRange == nil ? liveFrame : nil
+        guard let selected else {return historyRange == nil ? liveFrame : nil}
+        // A table asks for the selected snapshot from many cells and helpers.
+        // Resolve it once per data/selection change, including unavailable results.
+        if !currentSnapshotResolved {
+            cachedCurrentSnapshot=HistoryAnalysis.snapshot(at:selected,frames:visibleFrames,gaps:gaps)
+            currentSnapshotResolved=true;snapshotLookupCount+=1
+        }
+        return cachedCurrentSnapshot
     }
     func returnToLive() {historyRequest=UUID();historyRange=nil;historyFrames=[];historySummaries=[];selected=nil;historyLoading=false;historyError=nil}
     func releaseHistoryDetails() {
@@ -229,7 +241,22 @@ final class Collector {
 
 }
 
-func bytes(_ value:UInt64) -> String { ByteCountFormatter.string(fromByteCount:Int64(clamping:value),countStyle:.binary) }
+// Table cells format footprint and disk values repeatedly. Reuse the formatter
+// instead of rebuilding its localization state for every value. Serialize access
+// because diagnostics and UI callers can run on different queues.
+private final class BinaryByteFormatter:@unchecked Sendable {
+    static let shared=BinaryByteFormatter()
+    private let lock=NSLock()
+    private let formatter:ByteCountFormatter
+    private init() {
+        formatter=ByteCountFormatter();formatter.countStyle = .binary
+    }
+    func string(_ value:UInt64)->String {
+        lock.lock();defer {lock.unlock()}
+        return formatter.string(fromByteCount:Int64(clamping:value))
+    }
+}
+func bytes(_ value:UInt64) -> String {BinaryByteFormatter.shared.string(value)}
 
 func diskRate(_ value:UInt64?,elapsed:Double?) -> String {
     guard let value,let elapsed,elapsed>0 else {return "—"}
