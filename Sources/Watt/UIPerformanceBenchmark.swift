@@ -24,10 +24,17 @@ import WattEnergyProtocol
     let processStart=UInt64((origin.timeIntervalSince1970-60)*1e6)
     func frame(_ index:Int)->Frame {
         let time=origin.addingTimeInterval(Double(index)*5)
-        let rows=(0..<800).map {offset in
-            ProcessRow(pid:Int32(offset+1),parent:offset>0 ? 1 : 0,start:processStart,name:"Fixture process \(offset)",
-                       cpu:Double((offset+index)%100),memory:UInt64(30_000_000+offset*1000),growth:1024,
-                       read:UInt64(offset*1024),written:UInt64(offset*512),energyNanojoules:UInt64(offset*1_000_000))
+        var rows:[ProcessRow]=[]
+        rows.reserveCapacity(800)
+        for offset in 0..<800 {
+            let pid=Int32(offset+1)
+            let parent:Int32=offset>0 ? 1 : 0
+            let cpu=Double((offset+index)%100)
+            let memory=UInt64(30_000_000+offset*1000)
+            let read=UInt64(offset*1024),written=UInt64(offset*512)
+            let energy=UInt64(offset*1_000_000)
+            rows.append(ProcessRow(pid:pid,parent:parent,start:processStart,name:"Fixture process \(offset)",
+                                   cpu:cpu,memory:memory,growth:1024,read:read,written:written,energyNanojoules:energy))
         }
         let energy=EnergyImpactSample(id:"fixture-\(index)",startedAt:time.addingTimeInterval(-1),endedAt:time,tasks:rows.map {
             EnergyImpactTask(pid:$0.pid,name:$0.name,energyImpact:nil,energyImpactPerSecond:Double($0.pid%30),processStartMicroseconds:$0.start)
