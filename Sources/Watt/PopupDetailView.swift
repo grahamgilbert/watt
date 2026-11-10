@@ -98,9 +98,10 @@ struct PopupDetailView:View {
 
     private var header:some View {
         HStack(spacing:10) {
-            Button(action:onBack) {Label("Watt",systemImage:"chevron.left").font(.system(size:12))}
-                .buttonStyle(.plain).foregroundStyle(.secondary).help("Back to tiles")
-                .accessibilityIdentifier("popup.detail.back")
+            // Reserve the original label's space so the larger target does not
+            // shift the centered title or change the header's height.
+            Label("Watt",systemImage:"chevron.left").font(.system(size:12))
+                .hidden().accessibilityHidden(true)
             Spacer(minLength:4)
             Text(destination.title).font(.system(size:17,weight:.semibold)).lineLimit(1)
             Spacer(minLength:4)
@@ -122,6 +123,9 @@ struct PopupDetailView:View {
                 }
             }
         }.padding(.horizontal,22).padding(.vertical,17)
+            .overlay(alignment:.leading) {
+                PopupDetailBackButton(action:onBack).padding(.leading,10)
+            }
     }
     private var modes:[String] {
         switch destination {
@@ -320,5 +324,29 @@ struct PopupDetailView:View {
     }
     private func coverageDuration(_ seconds:Double)->String {
         seconds>=60 ? "\(Int(seconds/60))m \(Int(seconds.truncatingRemainder(dividingBy:60)))s covered" : "\(Int(max(0,seconds)))s covered"
+    }
+}
+
+private struct PopupDetailBackButton:View {
+    let action:()->Void
+    @State private var hovered=false
+    @FocusState private var focused:Bool
+
+    var body:some View {
+        Button(action:action) {
+            Label("Watt",systemImage:"chevron.left").font(.system(size:12))
+                .padding(.horizontal,12)
+                .frame(width:112,height:44,alignment:.leading)
+                .contentShape(Rectangle())
+                .background(hovered || focused ? Color.primary.opacity(0.065) : .clear,in:RoundedRectangle(cornerRadius:8))
+                .overlay {
+                    if focused {RoundedRectangle(cornerRadius:8).strokeBorder(Color.accentColor.opacity(0.65),lineWidth:1)}
+                }
+        }.buttonStyle(.plain).foregroundStyle(.secondary)
+            .focused($focused)
+            .onHover {hovered=$0}
+            .help("Back to tiles")
+            .accessibilityLabel("Back to tiles")
+            .accessibilityIdentifier("popup.detail.back")
     }
 }
