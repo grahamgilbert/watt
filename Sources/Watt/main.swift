@@ -111,15 +111,40 @@ struct LiveView:View {
     var open:()->Void
     var configure:()->Void
     @ObservedObject var layout:PopupLayoutSettings
+    var openDetail:((PopupExplorerContext)->Void)? = nil
+    var close:(()->Void)? = nil
+    @ObservedObject var detail=PopupDetailSession()
+    @State private var dashboardScrollTarget:String?
     private var popupWidth:CGFloat {min(max(380,layout.contentWidth()+44),max(380,(NSScreen.main?.visibleFrame.width ?? 1440)-40))}
     private var maximumDashboardHeight:CGFloat {max(160,(NSScreen.main?.visibleFrame.height ?? 900)-240)}
     var body:some View {
+        VStack(spacing:0) {
+            if let item=detail.item {
+                PopupDetailView(frame:detail.frames.last ?? monitor.liveFrame,frames:detail.frames,gaps:detail.gaps,item:item,
+                                selectedTime:Binding(get:{detail.selectedTime},set:{detail.select($0,liveFrames:monitor.frames,gaps:monitor.gaps)}),
+                                duration:Binding(get:{detail.duration},set:{detail.changeDuration($0,liveFrames:monitor.frames,gaps:monitor.gaps)}),
+                                isLoading:detail.isLoading,error:detail.error,onBack:{detail.reset()},onOpenExplorer:{context in
+                                    if let openDetail {openDetail(context)} else {open()}
+                                })
+                    .frame(width:min(560,max(380,(NSScreen.main?.visibleFrame.width ?? 1440)-40)))
+            } else {dashboard}
+        }
+        .onChange(of:monitor.liveFrame?.time) {_,_ in if let frame=monitor.liveFrame {detail.observe(frame,gaps:monitor.gaps)}}
+        .onDisappear {detail.reset()}
+        .onExitCommand {
+            if detail.item != nil {detail.reset()}
+            else {close?()}
+        }
+    }
+    private var dashboard:some View {
         VStack(alignment:.leading,spacing:18) {
             HStack {Text("Watt").font(.title2.weight(.semibold));Spacer()}
             if let f=monitor.liveFrame {
                 ScrollView([.vertical,.horizontal]) {
-                    PopupDashboard(frame:f,frames:Array(monitor.frames.suffix(36)),layout:layout).frame(maxWidth:.infinity)
-                }.scrollIndicators(.hidden).frame(height:min(layout.contentHeight(),maximumDashboardHeight))
+                    PopupDashboard(frame:f,frames:Array(monitor.frames.suffix(36)),layout:layout,onSelect:{item in
+                        detail.open(item,liveFrames:monitor.frames,gaps:monitor.gaps,loader:monitor.loadPopupHistory)
+                    }).frame(maxWidth:.infinity)
+                }.scrollPosition(id:$dashboardScrollTarget).scrollIndicators(.hidden).frame(height:min(layout.contentHeight(),maximumDashboardHeight))
             } else {Text("Measuring the first complete interval…").foregroundStyle(.secondary)}
             if let error=monitor.error {Text(error).font(.caption).foregroundStyle(.orange)}
             Divider()
@@ -148,6 +173,7 @@ struct LiveView:View {
     let menuSettings:MenuBarSettings
     let popupLayout:PopupLayoutSettings
     private let explorerControls=ProcessExplorerControls()
+    let popupSession=PopupDetailSession()
     private let layoutPresenter=PopupLayoutEditorPresenter()
     lazy var updater=AppUpdater()
     let energyCollector=EnergyImpactCollector()
@@ -184,7 +210,7 @@ struct LiveView:View {
         ribbon.action={ [weak self] in self?.toggle() }
         subscription=monitor.$liveFrame.sink { [weak ribbon] frame in
             guard let ribbon,let frame else {return}
-            var gauge=frame;gauge.processes=[];gauge.energyImpact=nil
+            var gauge=frame;gauge.processes=[];gauge.energyImpact=nil;gauge.processNetwork=nil
             ribbon.frames=Array((ribbon.frames+[gauge]).suffix(36))
             ribbon.toolTip="CPU \(Int(frame.cpu))% · Memory \(bytes(frame.memory)) · ↓ \(bytes(UInt64(frame.download)))/s ↑ \(bytes(UInt64(frame.upload)))/s · Click to inspect"
             ribbon.setAccessibilityLabel(ribbon.toolTip)
@@ -208,7 +234,10 @@ struct LiveView:View {
         // Launch as a menu bar recorder. Build expensive views only while shown.
     }
     private func showLiveContent() {
-        popover.contentViewController=NSHostingController(rootView:LiveView(monitor:monitor,open:{[weak self] in self?.showExplorer()},configure:{[weak self] in self?.showPreferences()},layout:popupLayout))
+        popupSession.reset()
+        let controller=NSHostingController(rootView:LiveView(monitor:monitor,open:{[weak self] in self?.showExplorer()},configure:{[weak self] in self?.showPreferences()},layout:popupLayout,openDetail:{[weak self] context in self?.showExplorer(context:context)},close:{[weak self] in self?.popover.performClose(nil)},detail:popupSession))
+        controller.sizingOptions = [.preferredContentSize]
+        popover.contentViewController=controller
     }
     @objc private func showPreferences() {
         popover.performClose(nil)
@@ -237,8 +266,18 @@ struct LiveView:View {
         outsideMonitor=NSEvent.addGlobalMonitorForEvents(matching:[.leftMouseDown,.rightMouseDown,.otherMouseDown]) { [weak self] _ in
             MainActor.assumeIsolated { guard let self,self.popover.isShown || self.window?.isVisible == true else {return};self.dismissSurfaces() }
         }
-        localMonitor=NSEvent.addLocalMonitorForEvents(matching:[.leftMouseDown,.rightMouseDown,.otherMouseDown]) { [weak self] event in
+        localMonitor=NSEvent.addLocalMonitorForEvents(matching:[.leftMouseDown,.rightMouseDown,.otherMouseDown,.keyDown]) { [weak self] event in
             guard let self else {return event}
+            if event.type == .keyDown {
+                guard event.keyCode==53,self.popover.isShown,
+                      let popupWindow=self.popover.contentViewController?.view.window,
+                      event.window === popupWindow || event.window == nil && popupWindow.isKeyWindow else {return event}
+                // AppKit otherwise handles Escape before SwiftUI's exit action
+                // and closes the whole transient popover on the first press.
+                if self.popupSession.item != nil {self.popupSession.reset()}
+                else {self.popover.performClose(nil)}
+                return nil
+            }
             let isStatus=event.window === self.item.button?.window
             let isPopover=event.window === self.popover.contentViewController?.view.window
             let isExplorer=event.window === self.window
@@ -255,6 +294,7 @@ struct LiveView:View {
     }
     func applicationDidResignActive(_ notification:Notification) {dismissSurfaces()}
     func applicationWillTerminate(_ notification:Notification) {
+        monitor.stopRecording()
         energyCollector.stop()
         for observer in energySleepObservers {NSWorkspace.shared.notificationCenter.removeObserver(observer)}
         if let outsideMonitor {NSEvent.removeMonitor(outsideMonitor)}
@@ -277,7 +317,7 @@ struct LiveView:View {
         else if changed === preferencesWindow {changed.contentView=nil}
     }
     func popoverDidShow(_ notification:Notification) {publishWindowState()}
-    func popoverDidClose(_ notification:Notification) {popover.contentViewController=nil;publishWindowState()}
+    func popoverDidClose(_ notification:Notification) {popupSession.reset();popover.contentViewController=nil;publishWindowState()}
     private func publishWindowState() {
         #if DEBUG
         guard item != nil else {return}
@@ -289,9 +329,27 @@ struct LiveView:View {
     }
     @objc private func statusPressed(_ sender:Any?) {toggle()}
     func toggle() {if popover.isShown{popover.performClose(nil)}else if let button=item.button{showLiveContent();NSApp.activate();popover.show(relativeTo:button.bounds,of:button,preferredEdge:.minY);popover.contentViewController?.view.window?.makeKey()}}
-    func showExplorer() {
+    func showExplorer(context:PopupExplorerContext?=nil) {
         popover.performClose(nil)
-        if window==nil {explorerControls.center=(monitor.liveFrame?.time ?? monitor.historyBounds?.end ?? Date()).addingTimeInterval(-explorerControls.duration/2);let w=NSWindow(contentRect:NSRect(x:0,y:0,width:1440,height:900),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false);w.title="Watt · Process Explorer";w.delegate=self;w.contentView=nil;w.isReleasedWhenClosed=false;w.center();window=w}
+        if let context {
+            explorerControls.duration=context.duration
+            explorerControls.sort=context.sort;explorerControls.scope=context.scope
+            explorerControls.selection=context.processID;explorerControls.applicationSelection=context.applicationID
+            explorerControls.networkApplicationFilterID=nil;explorerControls.networkApplicationFilterName=nil;explorerControls.networkApplicationMemberIDs=[]
+            explorerControls.search="";explorerControls.tree=false;explorerControls.mode="At cursor"
+            if context.intervalSummary || context.selectedTime != nil {
+                let selected=context.selectedTime ?? context.range?.end ?? monitor.liveFrame?.time ?? Date()
+                let center=context.range.map {$0.start.addingTimeInterval($0.duration/2)} ?? selected
+                explorerControls.center=center
+                monitor.loadHistory(center:center,duration:context.duration)
+                monitor.selected=selected
+                if context.intervalSummary {explorerControls.mode="Interval summary"}
+            } else {
+                monitor.returnToLive()
+                explorerControls.center=(monitor.liveFrame?.time ?? Date()).addingTimeInterval(-context.duration/2)
+            }
+        }
+        if window==nil {if context == nil {explorerControls.center=(monitor.liveFrame?.time ?? monitor.historyBounds?.end ?? Date()).addingTimeInterval(-explorerControls.duration/2)};let w=NSWindow(contentRect:NSRect(x:0,y:0,width:1440,height:900),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false);w.title="Watt · Process Explorer";w.delegate=self;w.contentView=nil;w.isReleasedWhenClosed=false;w.center();window=w}
         monitor.restoreHistoryDetailsIfNeeded()
         window?.title="Watt · Process Explorer"
         if window?.contentView == nil {window?.contentView=NSHostingView(rootView:ProcessExplorerView(monitor:monitor,controls:explorerControls))}

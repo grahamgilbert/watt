@@ -41,8 +41,11 @@ final class HiddenSurfaceTests:XCTestCase {
         delegate.windowWillClose(Notification(name:NSWindow.willCloseNotification,object:window))
         XCTAssertNil(window.contentView)
         delegate.popover.contentViewController=NSViewController()
+        delegate.popupSession.open(.cpu,liveFrames:PopupLayoutPreview.frames,gaps:[]) {_,_,_ in}
         delegate.popoverDidClose(Notification(name:NSPopover.didCloseNotification,object:delegate.popover))
         XCTAssertNil(delegate.popover.contentViewController)
+        XCTAssertNil(delegate.popupSession.item)
+        XCTAssertTrue(delegate.popupSession.frames.isEmpty,"Every close path releases detail data and starts the next opening at the overview")
         window.close()
     }
 }

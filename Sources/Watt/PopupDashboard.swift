@@ -9,12 +9,17 @@ struct PopupDashboard:View {
     @ObservedObject var layout:PopupLayoutSettings
     var tileSide:CGFloat=160
     var editingLayout:Bool=false
+    var onSelect:((PopupItemID)->Void)?=nil
     @State private var targeted:PopupItemID?
     @State private var insertionTargeted:Int?
+    @State private var hovered:PopupItemID?
     static let spacing:CGFloat=12
     private var physical:Double {Double(ProcessInfo.processInfo.physicalMemory)}
     private var fullWidth:CGFloat {layout.contentWidth(tileSide:tileSide,spacing:Self.spacing)}
     private var networkCeiling:Double {max(1,frames.map {max($0.download,$0.upload)}.max() ?? 1)}
+    private var busiestCPUName:String? {
+        frame.processes.lazy.filter {process in process.cpu.map {$0.isFinite && $0>=0} ?? false}.max {($0.cpu ?? 0)<($1.cpu ?? 0)}?.name
+    }
 
     var body:some View {
         VStack(alignment:.leading,spacing:Self.spacing) {
@@ -33,10 +38,10 @@ struct PopupDashboard:View {
                         }
                         Spacer(minLength:0)
                     }
-                }.frame(width:fullWidth,alignment:.leading)
+                }.frame(width:fullWidth,alignment:.leading).id(row.id)
             }
             if editingLayout && !layout.rows.isEmpty {insertionTarget(index:layout.visibleEntries.count,width:fullWidth,height:50,title:"Drop here to add at the end")}
-        }.frame(width:fullWidth,alignment:.leading)
+        }.scrollTargetLayout().frame(width:fullWidth,alignment:.leading)
     }
     @ViewBuilder private func tileCell(_ entry:PopupLayoutEntry)->some View {
         if editingLayout {
@@ -64,7 +69,21 @@ struct PopupDashboard:View {
                 .accessibilityAction(named:Text("Remove tile")) {layout.setVisible(false,for:entry.id)}
                 .accessibilityAction(named:Text("Move earlier")) {layout.moveVisible(entry.id,by:-1)}
                 .accessibilityAction(named:Text("Move later")) {layout.moveVisible(entry.id,by:1)}
-        } else {tileContent(entry)}
+        } else {
+            Button {onSelect?(layout.detailItem(for:entry.id))} label: {
+                tileContent(entry)
+                    .overlay(alignment:.topTrailing) {
+                        Image(systemName:"chevron.right").font(.system(size:8,weight:.medium))
+                            .foregroundStyle(.secondary).opacity(hovered == entry.id ? 0.8 : 0.35).padding(12)
+                    }
+            }.buttonStyle(.plain)
+                .onHover {hovered=$0 ? entry.id : nil}
+                .accessibilityElement(children:.ignore)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel("\(entry.id.title), \(accessibilityValue(for:entry.id))")
+                .accessibilityHint("Show \(entry.id.category.title.lowercased()) details")
+                .accessibilityIdentifier("popup.tile.\(entry.id.rawValue)")
+        }
     }
     private func insertionTarget(index:Int,width:CGFloat,height:CGFloat,title:String)->some View {
         Image(systemName:"plus").font(.system(size:13,weight:.light)).foregroundStyle(.tertiary)
@@ -91,10 +110,19 @@ struct PopupDashboard:View {
     @ViewBuilder private func tile(_ id:PopupItemID)->some View {
         switch id {
         case .cpu:
-            metricTile(title:"CPU",text:String(format:"%.0f",frame.cpu),unit:"%",caption:"Machine capacity",color:.mint,ceiling:100,value:{$0.cpu})
+            metricTile(title:"CPU",text:String(format:"%.0f",frame.cpu),unit:"%",caption:busiestCPUName.map {"Top: \($0)"} ?? "Machine capacity",color:.mint,ceiling:100,value:{$0.cpu})
+                .help("Total machine CPU usage. Process rankings use 100% for one logical CPU and are available in details.")
         case .memory:
-            metricTile(title:"MEMORY",text:String(format:"%.0f",Double(frame.memory)/physical*100),unit:"%",caption:"\(bytes(frame.memory)) used",color:.purple,ceiling:100,value:{Double($0.memory)/physical*100})
+            metricTile(title:"MEMORY",text:String(format:"%.0f",Double(frame.memory)/physical*100),unit:"%",caption:"\(bytes(frame.memory)) of \(bytes(UInt64(physical)))",color:.purple,ceiling:100,value:{Double($0.memory)/physical*100})
                 .help("Used RAM excludes reclaimable cache. This percentage is not memory pressure.")
+        case .network:
+            pairedTile(title:"NETWORK",first:frame.download,second:frame.upload,firstLabel:"↓",secondLabel:"↑",firstColor:.cyan,secondColor:.orange,caption:nil,ceiling:networkCeiling,firstValue:{$0.download},secondValue:{$0.upload})
+                .help("Physical-interface download and upload rates over the measured interval. Both traces use the same scale.")
+        case .diskActivity:
+            pairedTile(title:"DISK ACTIVITY",first:popupDiskRate(frame,read:true),second:popupDiskRate(frame,read:false),firstLabel:"R",secondLabel:"W",firstColor:.cyan,secondColor:.purple,caption:"Observed process I/O",ceiling:nil,firstValue:{popupDiskRate($0,read:true)},secondValue:{popupDiskRate($0,read:false)})
+                .help("Observed process read and write counter deltas divided by the actual sample interval. These are partial process totals, not disk-device throughput.")
+        case .energy:
+            energySummaryTile
         case .download:
             metricTile(title:"↓ DOWNLOAD",text:compactNetworkRate(frame.download),unit:"/s",caption:"Shared network scale",color:.cyan,ceiling:networkCeiling,value:{$0.download})
         case .upload:
@@ -118,6 +146,21 @@ struct PopupDashboard:View {
             }
         }
     }
+    @ViewBuilder private var energySummaryTile:some View {
+        if layout.energySummary == "Energy Impact" {
+            let leading=popupLeadingEnergyImpact(frame)
+            VStack(alignment:.leading,spacing:6) {
+                heading("ENERGY IMPACT",color:.orange)
+                Text(leading.map {String(format:"%.1f",$0.impact)} ?? "—")
+                    .font(.system(size:28,weight:.medium,design:.rounded)).monospacedDigit().minimumScaleFactor(0.65).lineLimit(1)
+                PopupImpactSpark(frames:frames,processID:leading?.process.id).frame(maxHeight:.infinity)
+                Text(leading?.process.name ?? "Unavailable").font(.system(size:9)).foregroundStyle(.secondary).lineLimit(1)
+            }.help("Leading process's Apple-derived unitless Energy Impact score and its own recorded capture history. This is not watts or an application-total score.")
+        } else {
+            metricTile(title:"CPU POWER",text:popupCPUPower(frame).map {String(format:"%.1f",$0)} ?? "—",unit:"W",caption:"Observed · estimate",color:.pink,ceiling:nil,value:popupCPUPower)
+                .help("Sum of available process CPU-power estimates. Missing energy remains unavailable. This excludes GPU and whole-device power; Energy Impact is a separate unitless view in details.")
+        }
+    }
     private var batteryText:String {
         guard let power=frame.power,power.hasUsableCurrent else {return "—"}
         return String(format:"%.1f",abs(power.watts))
@@ -137,6 +180,50 @@ struct PopupDashboard:View {
             }
             PopupSpark(frames:frames,color:color,ceiling:ceiling,value:value).frame(maxHeight:.infinity)
             Text(caption).font(.system(size:9)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
+        }
+    }
+    private func pairedTile(title:String,first:Double?,second:Double?,firstLabel:String,secondLabel:String,firstColor:Color,secondColor:Color,caption:String?,ceiling:Double?,firstValue:@escaping(Frame)->Double?,secondValue:@escaping(Frame)->Double?)->some View {
+        VStack(alignment:.leading,spacing:5) {
+            heading(title,color:firstColor)
+            VStack(alignment:.leading,spacing:2) {
+                rateRow(first,label:firstLabel,color:firstColor)
+                rateRow(second,label:secondLabel,color:secondColor)
+            }
+            PopupPairedSpark(frames:frames,firstColor:firstColor,secondColor:secondColor,ceiling:ceiling,firstValue:firstValue,secondValue:secondValue).frame(maxHeight:.infinity)
+            if let caption {Text(caption).font(.system(size:9)).foregroundStyle(.secondary).lineLimit(1)}
+            else {
+                HStack(spacing:10) {
+                    rateLegend("Down",color:firstColor)
+                    rateLegend("Up",color:secondColor)
+                }
+            }
+        }
+    }
+    private func rateRow(_ rate:Double?,label:String,color:Color)->some View {
+        let formatted=popupRateValue(rate)
+        return HStack(alignment:.firstTextBaseline,spacing:4) {
+            Text(label).font(.system(size:label == "R" || label == "W" ? 9 : 14,weight:.medium)).foregroundStyle(color).frame(width:12,alignment:.leading)
+            Text(formatted.value).font(.system(size:22,weight:.medium,design:.rounded)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+            Text(formatted.unit).font(.system(size:9)).foregroundStyle(.secondary).lineLimit(1)
+        }
+    }
+    private func rateLegend(_ title:String,color:Color)->some View {
+        HStack(spacing:3) {Rectangle().fill(color).frame(width:7,height:1.5);Text(title)}.font(.system(size:8)).foregroundStyle(.secondary)
+    }
+    private func accessibilityValue(for id:PopupItemID)->String {
+        if id == .memoryDetail {return "Compressed \(bytes(frame.compressed)), swap \(bytes(frame.swap))"}
+        if id == .energyImpact || (id == .energy && layout.energySummary == "Energy Impact") {
+            return popupLeadingEnergyImpact(frame).map {String(format:"%@, %.1f unitless Energy Impact",$0.process.name,$0.impact)} ?? "Energy Impact unavailable"
+        }
+        if id == .cpuProcesses {return busiestCPUName.map {"Busiest process \($0), per-core CPU percentages"} ?? "Process CPU unavailable"}
+        switch id.category {
+        case .cpu:return String(format:"%.0f percent of machine capacity",frame.cpu)
+        case .memory:return "\(bytes(frame.memory)) used of \(bytes(UInt64(physical)))"
+        case .network:return "Download \(popupRateValue(frame.download).description), upload \(popupRateValue(frame.upload).description)"
+        case .diskActivity:return "Process reads \(popupRateValue(popupDiskRate(frame,read:true)).description), writes \(popupRateValue(popupDiskRate(frame,read:false)).description)"
+        case .energy:return popupCPUPower(frame).map {String(format:"%.1f estimated CPU watts",$0)} ?? "CPU power unavailable"
+        case .batteryFlow:return frame.power?.hasUsableCurrent == true ? "\(batteryText) watts, \(batteryCaption)" : "Battery flow unavailable"
+        default:return "Open metric details"
         }
     }
     private func diskTile(read:Bool)->some View {
@@ -258,13 +345,63 @@ struct PopupEnergyImpactRow:Identifiable {
     var id:String {process.id}
 }
 func popupEnergyImpactRows(_ frame:Frame)->[PopupEnergyImpactRow] {
-    guard let sample=frame.energyImpact else {return []}
+    guard frame.energyImpact != nil else {return []}
     return frame.processes.compactMap {process in
-        guard process.start>0,
-              let task=sample.task(forPID:process.pid,processStart:Date(timeIntervalSince1970:Double(process.start)/1e6),at:frame.time,maximumAge:15),
-              let value=task.energyImpactPerSecond,value.isFinite,value>=0 else {return nil}
+        guard let value=popupEnergyImpactValue(process,in:frame) else {return nil}
         return PopupEnergyImpactRow(process:process,impact:value)
     }.sorted {$0.impact == $1.impact ? $0.process.pid<$1.process.pid : $0.impact>$1.impact}
+}
+func popupLeadingEnergyImpact(_ frame:Frame)->PopupEnergyImpactRow? {
+    guard frame.energyImpact != nil else {return nil}
+    var leading:PopupEnergyImpactRow?
+    for process in frame.processes {
+        guard let value=popupEnergyImpactValue(process,in:frame) else {continue}
+        if leading == nil || value>(leading?.impact ?? -1) || (value==leading?.impact && process.pid<(leading?.process.pid ?? .max)) {
+            leading=PopupEnergyImpactRow(process:process,impact:value)
+        }
+    }
+    return leading
+}
+private func popupEnergyImpactValue(_ process:ProcessRow,in frame:Frame)->Double? {
+    guard let sample=frame.energyImpact,process.start>0,
+          let task=sample.task(forPID:process.pid,processStart:Date(timeIntervalSince1970:Double(process.start)/1e6),at:frame.time,maximumAge:15),
+          let value=task.energyImpactPerSecond,value.isFinite,value>=0 else {return nil}
+    return value
+}
+struct PopupImpactPoint:Identifiable {
+    let id:String
+    let time:Date
+    let value:Double
+    let segment:String
+}
+func popupProcessImpactHistory(_ frames:[Frame],processID:String?)->[PopupImpactPoint] {
+    guard let processID else {return []}
+    var seen=Set<String>(),run=0,previousEnd:Date?
+    return frames.sorted {$0.time<$1.time}.compactMap {frame in
+        guard let capture=frame.energyImpact,!capture.id.isEmpty,
+              let process=frame.processes.first(where:{$0.id==processID}),
+              let value=popupEnergyImpactValue(process,in:frame) else {run+=1;return nil}
+        guard seen.insert(capture.id).inserted else {return nil}
+        if let previousEnd,capture.endedAt.timeIntervalSince(previousEnd)>max(2,(frame.cadence ?? frame.elapsed ?? 5)*1.5) {run+=1}
+        previousEnd=capture.endedAt
+        return PopupImpactPoint(id:capture.id,time:capture.endedAt,value:value,segment:"\(frame.segment ?? "legacy")-\(run)")
+    }
+}
+
+private struct PopupImpactSpark:View {
+    let frames:[Frame]
+    let processID:String?
+    var body:some View {
+        let points=popupProcessImpactHistory(frames,processID:processID)
+        Chart(points) {point in
+            AreaMark(x:.value("Time",point.time),yStart:.value("Baseline",0),yEnd:.value("Score",point.value),series:.value("Segment",point.segment))
+                .foregroundStyle(LinearGradient(colors:[Color.orange.opacity(0.22),Color.orange.opacity(0.025)],startPoint:.top,endPoint:.bottom))
+            LineMark(x:.value("Time",point.time),y:.value("Score",point.value),series:.value("Segment",point.segment))
+                .foregroundStyle(Color.orange).lineStyle(StrokeStyle(lineWidth:1.6,lineCap:.round,lineJoin:.round))
+        }.chartYScale(domain:0...max(1,(points.map(\.value).max() ?? 1)*1.08)).chartXAxis(.hidden).chartYAxis(.hidden)
+            .overlay(alignment:.bottom) {Rectangle().fill(.primary.opacity(0.08)).frame(height:0.5)}
+            .accessibilityLabel("Selected leading process Energy Impact history, unitless; gaps indicate missing captures")
+    }
 }
 
 func popupDiskRate(_ frame:Frame,read:Bool)->Double? {
@@ -272,6 +409,71 @@ func popupDiskRate(_ frame:Frame,read:Bool)->Double? {
     let deltas=frame.processes.compactMap {read ? $0.read : $0.written}
     guard !deltas.isEmpty else {return nil}
     return deltas.reduce(0.0) {$0+Double($1)}/elapsed
+}
+
+func popupCPUPower(_ frame:Frame)->Double? {
+    var total=0.0,measured=false
+    for process in frame.processes {
+        guard let watts=process.cpuPowerWatts(elapsed:frame.elapsed),watts.isFinite,watts>=0 else {continue}
+        total+=watts;measured=true
+    }
+    return measured && total.isFinite ? total : nil
+}
+
+struct PopupRateValue:Equatable {
+    let value:String
+    let unit:String
+    var description:String {unit.isEmpty ? "unavailable" : "\(value) \(unit)"}
+}
+func popupRateValue(_ rate:Double?)->PopupRateValue {
+    guard let rate,rate.isFinite,rate>=0 else {return PopupRateValue(value:"—",unit:"")}
+    let units=["B/s","KB/s","MB/s","GB/s","TB/s"]
+    var value=rate,index=0
+    while value>=999.95 && index<units.count-1 {value/=1000;index+=1}
+    return PopupRateValue(value:index==0 ? String(format:"%.0f",value) : String(format:"%.1f",value),unit:units[index])
+}
+
+private struct PopupPairedSpark:View {
+    let frames:[Frame]
+    let firstColor:Color
+    let secondColor:Color
+    let ceiling:Double?
+    let firstValue:(Frame)->Double?
+    let secondValue:(Frame)->Double?
+    private struct Point:Identifiable {
+        let time:Date
+        let value:Double
+        let lane:Int
+        let segment:String
+        var id:String {"\(time.timeIntervalSinceReferenceDate):\(lane)"}
+    }
+    private var points:[Point] {
+        var result:[Point]=[]
+        for lane in 0...1 {
+            var run=0
+            for frame in frames {
+                let value=lane==0 ? firstValue(frame) : secondValue(frame)
+                guard let value,value.isFinite,value>=0 else {run+=1;continue}
+                result.append(Point(time:frame.time,value:value,lane:lane,segment:"\(lane)-\(frame.segment ?? "legacy")-\(run)"))
+            }
+        }
+        return result
+    }
+    var body:some View {
+        let samples=self.points
+        let high=max(1,ceiling ?? samples.map(\.value).max() ?? 1)
+        Chart(samples) {point in
+            if point.lane==0 {
+                AreaMark(x:.value("Time",point.time),yStart:.value("Baseline",0),yEnd:.value("Value",point.value),series:.value("Segment",point.segment))
+                    .foregroundStyle(LinearGradient(colors:[firstColor.opacity(0.19),firstColor.opacity(0.02)],startPoint:.top,endPoint:.bottom))
+            }
+            LineMark(x:.value("Time",point.time),y:.value("Value",point.value),series:.value("Segment",point.segment))
+                .foregroundStyle(point.lane==0 ? firstColor : secondColor)
+                .lineStyle(StrokeStyle(lineWidth:1.7,lineCap:.round,lineJoin:.round,dash:point.lane==0 ? [] : [3,2]))
+        }.chartYScale(domain:0...high).chartXAxis(.hidden).chartYAxis(.hidden)
+            .overlay(alignment:.bottom) {Rectangle().fill(.primary.opacity(0.08)).frame(height:0.5)}
+            .accessibilityLabel("Paired recent rates on a shared scale; gaps indicate unavailable samples")
+    }
 }
 
 private struct PopupSpark:View {

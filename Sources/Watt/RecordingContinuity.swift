@@ -46,7 +46,7 @@ final class RecorderBackend: @unchecked Sendable {
             interrupt(at: lastFrame ?? wall, reason: reason)
             _ = continuity.observe(wall: wall, elapsed: uptime, cadence: cadence)
         }
-        guard var frame = collector.sample() else {
+        guard var frame = collector.sample(cadence:cadence) else {
             if collector.failed { interrupt(at:lastFrame ?? wall,reason:"System collection unavailable"); return (nil,"System collection unavailable") }
             return (nil, initializationError)
         }

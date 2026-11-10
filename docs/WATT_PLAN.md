@@ -82,6 +82,10 @@ Target roughly 400 pt wide, fitting the available screen height. The first view 
 
 Clicking a metric expands its detail in place or opens its focused history. GPU details live under CPU & GPU; network details expose interfaces, addresses, totals, and supported process rates. The CPU panel includes core groups, load, and uptime. The memory panel includes app/wired/compressed/free, swap, and paging.
 
+The [tile detail proposal](design/TILE_DETAILS.md), drafted November 10, 2026, specifies the next iteration: six focused detail views shared by the 12 tile types, back navigation inside one popover, per-process breakdowns, and context-preserving handoff to Process Explorer. It distinguishes existing recorded fields from new collection work, especially per-process network bandwidth. This is a design proposal; core groups, pressure/accounting detail, interface context, and other additional fields remain gated on validated collection.
+
+The November 10 implementation adds the six consolidated defaults, shared details, and recorded external TCP/UDP bandwidth per process. Details use an independent cursor and cancellable bounded history reads; dismissal resets navigation without affecting recording or Explorer's saved selection. Preferences controls process-network recording and the Energy tile's CPU-power / Energy Impact summary. The source layout is retained during migration for downgrade, and custom hidden categories/column counts are respected. See the linked document's implemented-scope section and running-app captures; the remaining sensor/interface/pressure additions are still proposals.
+
 Evaluate GPU utilization, memory, temperature, frequency, and FPS as individually gated parity candidates. The preference preview does not establish that every field is currently used. Shared GPU memory must be labeled accordingly. Some fields may not be obtainable on the M5 through a supported approach; confirm their importance and feasibility before calling Watt a complete iStat replacement.
 
 ### Unified Process Explorer

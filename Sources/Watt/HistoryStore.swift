@@ -155,7 +155,8 @@ final class HistoryStore {
         guard sqlite3_step(s)==SQLITE_ROW,sqlite3_column_type(s,0) != SQLITE_NULL else {return nil}
         return DateInterval(start:Date(timeIntervalSince1970:sqlite3_column_double(s,0)),end:Date(timeIntervalSince1970:sqlite3_column_double(s,1)))
     }
-    func frames(in range:DateInterval,maximumFrames:Int=1500,maximumBytes:Int64=96*1024*1024) throws -> [Frame] {
+    func frames(in range:DateInterval,maximumFrames:Int=1500,maximumBytes:Int64=96*1024*1024,isCancelled:()->Bool={false}) throws -> [Frame] {
+        guard !isCancelled() else {throw CancellationError()}
         let count=try statement("SELECT count(*),coalesce(sum(bytes),0) FROM frames WHERE time>=? AND time<=?")
         defer {sqlite3_finalize(count)}
         sqlite3_bind_double(count,1,range.start.timeIntervalSince1970);sqlite3_bind_double(count,2,range.end.timeIntervalSince1970)
@@ -166,6 +167,7 @@ final class HistoryStore {
         sqlite3_bind_double(s,1,range.start.timeIntervalSince1970);sqlite3_bind_double(s,2,range.end.timeIntervalSince1970)
         var frames:[Frame]=[];var status=sqlite3_step(s)
         while status==SQLITE_ROW {
+            guard !isCancelled() else {throw CancellationError()}
             if let bytes=sqlite3_column_blob(s,0) {frames.append(try decoder.decode(Frame.self,from:Data(bytes:bytes,count:Int(sqlite3_column_bytes(s,0)))))}
             status=sqlite3_step(s)
         }

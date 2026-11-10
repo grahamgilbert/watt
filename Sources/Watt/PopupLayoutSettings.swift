@@ -2,12 +2,15 @@ import Foundation
 import Combine
 
 enum PopupItemID:String,CaseIterable,Codable,Identifiable {
-    case cpu,memory,download,upload,batteryFlow,cpuProcesses,processCPUPower,applicationCPUPower,energyImpact,diskRead,diskWrite,memoryDetail
+    case cpu,memory,network,diskActivity,energy,batteryFlow,download,upload,cpuProcesses,processCPUPower,applicationCPUPower,energyImpact,diskRead,diskWrite,memoryDetail
     var id:String {rawValue}
     var title:String {
         switch self {
         case .cpu:return "CPU"
         case .memory:return "Memory"
+        case .network:return "Network"
+        case .diskActivity:return "Disk activity"
+        case .energy:return "Energy"
         case .download:return "Download"
         case .upload:return "Upload"
         case .batteryFlow:return "Battery flow"
@@ -24,6 +27,9 @@ enum PopupItemID:String,CaseIterable,Codable,Identifiable {
         switch self {
         case .cpu:return "Machine capacity and recent history"
         case .memory:return "Used RAM with reclaimable cache excluded"
+        case .network:return "Download and upload with a shared history scale"
+        case .diskActivity:return "Observed process read and write activity"
+        case .energy:return "Observed process CPU power and energy details"
         case .download:return "Incoming traffic · shared network scale"
         case .upload:return "Outgoing traffic · shared network scale"
         case .batteryFlow:return "Estimated electrical flow at the battery"
@@ -34,6 +40,17 @@ enum PopupItemID:String,CaseIterable,Codable,Identifiable {
         case .diskRead:return "Observed process reads, not total disk I/O"
         case .diskWrite:return "Observed process writes, not total disk I/O"
         case .memoryDetail:return "Compressed memory and swap history"
+        }
+    }
+    // Dedicated tiles remain available, but the default dashboard uses one tile per category.
+    var category:PopupItemID {
+        switch self {
+        case .cpu,.cpuProcesses:return .cpu
+        case .memory,.memoryDetail:return .memory
+        case .network,.download,.upload:return .network
+        case .diskActivity,.diskRead,.diskWrite:return .diskActivity
+        case .energy,.processCPUPower,.applicationCPUPower,.energyImpact:return .energy
+        case .batteryFlow:return .batteryFlow
         }
     }
 }
@@ -50,9 +67,20 @@ struct PopupLayoutRow:Identifiable,Equatable {
 }
 
 @MainActor final class PopupLayoutSettings:ObservableObject {
-    static let storageKey="popup.layout.v1"
+    static let storageKey="popup.layout.v2"
+    static let legacyStorageKey="popup.layout.v1"
+    static let energySummaryKey="popup.energy-summary.v1"
+    static let energySummaryOptions=["CPU power","Energy Impact"]
     private let defaults:UserDefaults
     @Published private(set) var entries:[PopupLayoutEntry]
+    @Published var energySummary:String {
+        didSet {
+            guard Self.energySummaryOptions.contains(energySummary) else {
+                energySummary="CPU power";defaults.set("CPU power",forKey:Self.energySummaryKey);return
+            }
+            defaults.set(energySummary,forKey:Self.energySummaryKey)
+        }
+    }
     @Published var columnCount:Int {
         didSet {
             let bounded=min(6,max(2,columnCount))
@@ -63,26 +91,63 @@ struct PopupLayoutRow:Identifiable,Equatable {
     private struct StoredEntry:Codable {var id:String;var visible:Bool;var span:String}
     private struct StoredLayout:Codable {var version:Int;var entries:[StoredEntry];var columnCount:Int?}
     static var defaultEntries:[PopupLayoutEntry] {
-        let visible:Set<PopupItemID>=[.cpu,.memory,.download,.upload,.batteryFlow,.processCPUPower,.energyImpact]
-        let order:[PopupItemID]=[.cpu,.memory,.download,.upload,.batteryFlow,.processCPUPower,.energyImpact,.cpuProcesses,.diskRead,.diskWrite,.memoryDetail,.applicationCPUPower]
+        let visible:Set<PopupItemID>=[.cpu,.memory,.network,.diskActivity,.energy,.batteryFlow]
+        let order:[PopupItemID]=[.cpu,.memory,.network,.diskActivity,.energy,.batteryFlow,.download,.upload,.cpuProcesses,.processCPUPower,.applicationCPUPower,.energyImpact,.diskRead,.diskWrite,.memoryDetail]
         return order.map {PopupLayoutEntry(id:$0,visible:visible.contains($0),span:.square)}
     }
+    private static let legacyDefaultOrder:[PopupItemID]=[.cpu,.memory,.download,.upload,.batteryFlow,.processCPUPower,.energyImpact,.cpuProcesses,.diskRead,.diskWrite,.memoryDetail,.applicationCPUPower]
+    private static let legacyDefaultVisible:[PopupItemID]=[.cpu,.memory,.download,.upload,.batteryFlow,.processCPUPower,.energyImpact]
     init(defaults suppliedDefaults:UserDefaults? = nil) {
         if let suppliedDefaults {defaults=suppliedDefaults}
         else if Bundle.main.bundleIdentifier == MenuBarSettings.preferencesDomain {defaults = .standard}
         else {defaults=UserDefaults(suiteName:MenuBarSettings.preferencesDomain)!}
-        if let data=defaults.data(forKey:Self.storageKey),let stored=try? JSONDecoder().decode(StoredLayout.self,from:data),stored.version==1 {
+        let summary=defaults.string(forKey:Self.energySummaryKey) ?? "CPU power"
+        energySummary=Self.energySummaryOptions.contains(summary) ? summary : "CPU power"
+        let currentData=defaults.data(forKey:Self.storageKey)
+        let current=currentData.flatMap {try? JSONDecoder().decode(StoredLayout.self,from:$0)}.flatMap {$0.version==2 ? $0 : nil}
+        let legacy=defaults.data(forKey:Self.legacyStorageKey).flatMap {try? JSONDecoder().decode(StoredLayout.self,from:$0)}.flatMap {[1,2].contains($0.version) ? $0 : nil}
+        // A newer app may have written a schema we cannot decode. Keep those bytes intact.
+        let currentVersion=currentData.flatMap {try? JSONSerialization.jsonObject(with:$0) as? [String:Any]}?["version"] as? Int
+        let newerVersion=currentVersion.map {$0>2} ?? false
+        let migrated=current == nil && legacy != nil && !newerVersion
+        if let stored=current ?? legacy {
             var seen=Set<PopupItemID>()
             let restored=stored.entries.compactMap {entry->PopupLayoutEntry? in
                 guard let id=PopupItemID(rawValue:entry.id),seen.insert(id).inserted else {return nil}
                 return PopupLayoutEntry(id:id,visible:entry.visible,span:PopupTileSpan(rawValue:entry.span) ?? .square)
             }
-            // Newly introduced tiles stay in the palette for an existing saved layout.
-            entries=restored+Self.defaultEntries.filter {!seen.contains($0.id)}.map {PopupLayoutEntry(id:$0.id,visible:false,span:$0.span)}
+            if stored.version==1 {
+                entries=Self.consolidated(restored)
+            } else {
+                // Newly introduced tiles stay in the palette for an existing saved layout.
+                entries=restored+Self.defaultEntries.filter {!seen.contains($0.id)}.map {PopupLayoutEntry(id:$0.id,visible:false,span:$0.span)}
+            }
             columnCount=min(6,max(2,stored.columnCount ?? 2))
         } else {entries=Self.defaultEntries;columnCount=2}
+        if migrated {persist()}
+    }
+    private static func consolidated(_ restored:[PopupLayoutEntry])->[PopupLayoutEntry] {
+        // Upgrade the original default as a whole, including the newly useful disk summary.
+        let oldOrder=legacyDefaultOrder.filter {id in restored.contains(where:{$0.id==id})}
+        if restored.map(\.id)==oldOrder && restored.filter(\.visible).map(\.id)==legacyDefaultVisible && restored.allSatisfy({$0.span == .square}) {
+            return defaultEntries
+        }
+        let visibleCategories=Set(restored.filter(\.visible).map { $0.id.category })
+        var result:[PopupLayoutEntry]=[],seen=Set<PopupItemID>()
+        for entry in restored {
+            if entry.visible {
+                let category=entry.id.category
+                if seen.insert(category).inserted {result.append(PopupLayoutEntry(id:category,visible:true,span:entry.span))}
+                if entry.id != category,seen.insert(entry.id).inserted {result.append(PopupLayoutEntry(id:entry.id,visible:false,span:entry.span))}
+            } else if entry.id != entry.id.category || !visibleCategories.contains(entry.id) {
+                if seen.insert(entry.id).inserted {result.append(entry)}
+            }
+        }
+        result += defaultEntries.filter {!seen.contains($0.id)}.map {PopupLayoutEntry(id:$0.id,visible:false,span:$0.span)}
+        return result
     }
     var visibleEntries:[PopupLayoutEntry] {entries.filter(\.visible)}
+    func detailItem(for id:PopupItemID)->PopupItemID {id == .energy && energySummary == "Energy Impact" ? .energyImpact : id}
     // The palette is a catalog of available sources, never a second ordering surface.
     var availableEntries:[PopupLayoutEntry] {PopupItemID.allCases.compactMap {id in entries.first(where:{$0.id==id && !$0.visible})}}
     var rows:[PopupLayoutRow] {Self.pack(visibleEntries,columnCount:columnCount)}
@@ -155,7 +220,7 @@ struct PopupLayoutRow:Identifiable,Equatable {
     }
     func reset() {entries=Self.defaultEntries;columnCount=2;persist()}
     private func persist() {
-        let stored=StoredLayout(version:1,entries:entries.map {StoredEntry(id:$0.id.rawValue,visible:$0.visible,span:$0.span.rawValue)},columnCount:columnCount)
+        let stored=StoredLayout(version:2,entries:entries.map {StoredEntry(id:$0.id.rawValue,visible:$0.visible,span:$0.span.rawValue)},columnCount:columnCount)
         if let data=try? JSONEncoder().encode(stored) {defaults.set(data,forKey:Self.storageKey)}
     }
 }
