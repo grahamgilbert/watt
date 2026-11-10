@@ -14,6 +14,8 @@ Per-interface addresses/breakdowns, real memory-pressure/accounting additions, e
 
 Running-app dashboard captures retain the existing three-column custom layout and hidden Battery tile, so eight original tiles consolidate into five visible categories. New/reset layouts use the six defaults shown in the design prototype.
 
+Native review verified tile navigation, Escape returning from detail to the overview and then closing it, reopening at the overview, and the Network detail handing its range, grouping, and ranking to Explorer. These captures use local app builds with a separate review identity; the installed app is unchanged. The ad-hoc-signed review copy cannot exercise the Developer ID-only Energy Impact helper. Longer battery and full-recorder overhead measurements remain release validation work.
+
 ![Before: running base app with existing custom layout](tile-details-before.png)
 
 ![After: running updated app preserving custom layout choices](tile-details-after.png)
