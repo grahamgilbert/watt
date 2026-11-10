@@ -66,6 +66,9 @@ struct PreferencesView:View {
                     Text("2 seconds").tag(2.0);Text("5 seconds").tag(5.0);Text("10 seconds").tag(10.0)
                 }
                 Text("Shorter intervals capture more detail and use more storage.").font(.caption).foregroundStyle(.secondary)
+                Toggle("Record bandwidth per process",isOn:$monitor.recordsProcessNetwork)
+                    .accessibilityIdentifier("recording.processNetwork")
+                Text("Keep received and sent byte counts for later inspection. Connection addresses and payloads are not recorded.").font(.caption).foregroundStyle(.secondary)
             }
             Section("Menu bar appearance") {
                 HStack {
@@ -93,6 +96,9 @@ struct PreferencesView:View {
                     Spacer()
                     Button("Edit layout…") {(layoutPresenter ?? layoutEditor).show(layout:popupLayout,monitor:monitor)}
                 }
+                Picker("Energy tile summary",selection:$popupLayout.energySummary) {
+                    ForEach(PopupLayoutSettings.energySummaryOptions,id:\.self) {Text($0).tag($0)}
+                }.accessibilityIdentifier("popup.layout.energy-summary")
             }
             if let energyCollector {
                 Section("Energy Impact") {EnergyCollectorControls(collector:energyCollector,interval:monitor.interval)}

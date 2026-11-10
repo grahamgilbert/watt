@@ -38,6 +38,15 @@ struct ExplorerPlotContext {
         context.addPath(path.cgPath)
         context.strokePath()
     }
+    func stroke(_ path:Path,with shading:Shading,style:StrokeStyle) {
+        context.saveGState()
+        defer {context.restoreGState()}
+        context.setLineCap(style.lineCap)
+        context.setLineJoin(style.lineJoin)
+        context.setMiterLimit(style.miterLimit)
+        context.setLineDash(phase:style.dashPhase,lengths:style.dash)
+        stroke(path,with:shading,lineWidth:style.lineWidth)
+    }
 }
 
 final class ExplorerPlotDrawingView:NSView {

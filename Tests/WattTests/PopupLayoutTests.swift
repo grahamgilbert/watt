@@ -3,13 +3,15 @@ import WattEnergyProtocol
 @testable import Watt
 
 final class PopupLayoutTests:XCTestCase {
-    func testNewInstallIncludesUnitlessEnergyImpactTile() async {
+    func testNewInstallUsesSixConsolidatedSquaresWithDedicatedTilesAvailable() async {
         await MainActor.run {
             Self.withSettings {layout,_ in
-                XCTAssertEqual(layout.visibleEntries.map(\.id),[.cpu,.memory,.download,.upload,.batteryFlow,.processCPUPower,.energyImpact])
-                XCTAssertEqual(layout.rows.map { $0.entries.count },[2,2,2,1])
-                XCTAssertEqual(layout.contentHeight(),676)
+                XCTAssertEqual(layout.visibleEntries.map(\.id),[.cpu,.memory,.network,.diskActivity,.energy,.batteryFlow])
+                XCTAssertEqual(layout.rows.map { $0.entries.count },[2,2,2])
+                XCTAssertEqual(layout.contentHeight(),504)
                 XCTAssertTrue(layout.visibleEntries.allSatisfy {$0.span == .square})
+                XCTAssertTrue(layout.availableEntries.contains {$0.id == .energyImpact})
+                XCTAssertTrue(layout.availableEntries.contains {$0.id == .download})
             }
         }
     }
@@ -34,25 +36,25 @@ final class PopupLayoutTests:XCTestCase {
         await MainActor.run {
             Self.withSettings {layout,_ in
                 layout.setVisible(false,for:.memory)
-                XCTAssertEqual(layout.rows.first?.entries.map(\.id),[.cpu,.download])
-                layout.move(.upload,before:.memory)
-                XCTAssertEqual(Array(layout.entries.prefix(4)).map(\.id),[.cpu,.upload,.memory,.download])
+                XCTAssertEqual(layout.rows.first?.entries.map(\.id),[.cpu,.network])
+                layout.move(.diskActivity,before:.memory)
+                XCTAssertEqual(Array(layout.entries.prefix(4)).map(\.id),[.cpu,.diskActivity,.memory,.network])
                 layout.setVisible(true,for:.memory)
-                XCTAssertEqual(layout.rows.prefix(2).map {$0.entries.map(\.id)},[[.cpu,.upload],[.memory,.download]])
+                XCTAssertEqual(layout.rows.prefix(2).map {$0.entries.map(\.id)},[[.cpu,.diskActivity],[.memory,.network]])
             }
         }
     }
     func testDragBeforeTargetWorksInBothDirectionsAndCanMoveToEnd() async {
         await MainActor.run {
             Self.withSettings {layout,_ in
-                layout.move(.cpu,before:.upload)
-                XCTAssertEqual(Array(layout.entries.prefix(4)).map(\.id),[.memory,.download,.cpu,.upload])
-                layout.move(.upload,before:.memory)
-                XCTAssertEqual(Array(layout.entries.prefix(4)).map(\.id),[.upload,.memory,.download,.cpu])
+                layout.move(.cpu,before:.diskActivity)
+                XCTAssertEqual(Array(layout.entries.prefix(4)).map(\.id),[.memory,.network,.cpu,.diskActivity])
+                layout.move(.diskActivity,before:.memory)
+                XCTAssertEqual(Array(layout.entries.prefix(4)).map(\.id),[.diskActivity,.memory,.network,.cpu])
                 layout.move(.cpu,before:nil)
                 XCTAssertEqual(layout.entries.last?.id,.cpu)
                 let unchanged=layout.entries
-                layout.move(.upload,before:.upload)
+                layout.move(.diskActivity,before:.diskActivity)
                 XCTAssertEqual(layout.entries,unchanged)
             }
         }
@@ -61,7 +63,7 @@ final class PopupLayoutTests:XCTestCase {
         await MainActor.run {
             Self.withSettings {layout,defaults in
                 layout.setSpan(.fullWidth,for:.memory)
-                XCTAssertEqual(layout.rows.map {$0.entries.map(\.id)},[[.cpu],[.memory],[.download,.upload],[.batteryFlow,.processCPUPower],[.energyImpact]])
+                XCTAssertEqual(layout.rows.map {$0.entries.map(\.id)},[[.cpu],[.memory],[.network,.diskActivity],[.energy,.batteryFlow]])
                 for entry in layout.entries {layout.setVisible(false,for:entry.id)}
                 XCTAssertTrue(layout.rows.isEmpty)
                 XCTAssertEqual(layout.contentHeight(),80)
@@ -76,7 +78,7 @@ final class PopupLayoutTests:XCTestCase {
         await MainActor.run {
             Self.withSettings {_,defaults in
                 let json=#"{"version":1,"entries":[{"id":"download","visible":false,"span":"fullWidth"},{"id":"download","visible":true,"span":"square"},{"id":"futureSensor","visible":true,"span":"square"},{"id":"cpu","visible":true,"span":"futureSpan"}]}"#
-                defaults.set(Data(json.utf8),forKey:PopupLayoutSettings.storageKey)
+                defaults.set(Data(json.utf8),forKey:PopupLayoutSettings.legacyStorageKey)
                 let restored=PopupLayoutSettings(defaults:defaults)
                 XCTAssertEqual(restored.entries.count,PopupItemID.allCases.count)
                 XCTAssertEqual(Set(restored.entries.map(\.id)).count,PopupItemID.allCases.count)
@@ -105,9 +107,9 @@ final class PopupLayoutTests:XCTestCase {
                 layout.move(.cpu,toPositionOf:.memory)
                 XCTAssertEqual(Array(layout.entries.prefix(2)).map(\.id),[.memory,.cpu])
                 layout.setVisible(false,for:.cpu)
-                layout.move(.memory,toPositionOf:.download)
-                XCTAssertEqual(Array(layout.entries.prefix(3)).map(\.id),[.cpu,.download,.memory])
-                XCTAssertEqual(layout.rows.first?.entries.map(\.id),[.download,.memory])
+                layout.move(.memory,toPositionOf:.network)
+                XCTAssertEqual(Array(layout.entries.prefix(3)).map(\.id),[.cpu,.network,.memory])
+                XCTAssertEqual(layout.rows.first?.entries.map(\.id),[.network,.memory])
                 XCTAssertFalse(layout.entries[0].visible)
             }
         }
@@ -125,17 +127,17 @@ final class PopupLayoutTests:XCTestCase {
         await MainActor.run {
             Self.withSettings {layout,_ in
                 layout.columnCount=3
-                XCTAssertEqual(layout.rows.map {$0.entries.count},[3,3,1])
+                XCTAssertEqual(layout.rows.map {$0.entries.count},[3,3])
                 XCTAssertEqual(layout.contentWidth(),504)
-                XCTAssertEqual(layout.contentHeight(),504)
+                XCTAssertEqual(layout.contentHeight(),332)
                 layout.columnCount=4
-                XCTAssertEqual(layout.rows.map {$0.entries.count},[4,3])
+                XCTAssertEqual(layout.rows.map {$0.entries.count},[4,2])
                 XCTAssertEqual(layout.contentWidth(),676)
                 layout.setSpan(.fullWidth,for:.memory)
-                XCTAssertEqual(layout.rows.map {$0.entries.map(\.id)},[[.cpu],[.memory],[.download,.upload,.batteryFlow,.processCPUPower],[.energyImpact]])
+                XCTAssertEqual(layout.rows.map {$0.entries.map(\.id)},[[.cpu],[.memory],[.network,.diskActivity,.energy,.batteryFlow]])
                 XCTAssertEqual(layout.rows.flatMap(\.entries).map(\.id),layout.visibleEntries.map(\.id))
                 layout.columnCount=3
-                XCTAssertEqual(layout.rows.map {$0.entries.count},[1,1,3,2])
+                XCTAssertEqual(layout.rows.map {$0.entries.count},[1,1,3,1])
             }
         }
     }
@@ -170,10 +172,10 @@ final class PopupLayoutTests:XCTestCase {
         await MainActor.run {
             Self.withSettings {layout,_ in
                 let order=layout.entries.map(\.id)
-                layout.setVisible(false,for:.download)
+                layout.setVisible(false,for:.network)
                 XCTAssertEqual(layout.entries.map(\.id),order)
-                XCTAssertFalse(layout.visibleEntries.contains(where:{$0.id == .download}))
-                XCTAssertTrue(layout.availableEntries.contains(where:{$0.id == .download}))
+                XCTAssertFalse(layout.visibleEntries.contains(where:{$0.id == .network}))
+                XCTAssertTrue(layout.availableEntries.contains(where:{$0.id == .network}))
                 XCTAssertTrue(layout.availableEntries.allSatisfy {!$0.visible})
                 let catalogOrder=PopupItemID.allCases.filter {id in !layout.visibleEntries.contains(where:{$0.id==id})}
                 XCTAssertEqual(layout.availableEntries.map(\.id),catalogOrder)
@@ -198,10 +200,10 @@ final class PopupLayoutTests:XCTestCase {
             Self.withSettings {layout,_ in
                 layout.setVisible(false,for:.memory)
                 layout.moveVisible(.cpu,by:1)
-                XCTAssertEqual(Array(layout.visibleEntries.prefix(2)).map(\.id),[.download,.cpu])
+                XCTAssertEqual(Array(layout.visibleEntries.prefix(2)).map(\.id),[.network,.cpu])
                 XCTAssertFalse(layout.entries.first(where:{$0.id == .memory})!.visible)
                 layout.moveVisible(.cpu,by:-1)
-                XCTAssertEqual(Array(layout.visibleEntries.prefix(2)).map(\.id),[.cpu,.download])
+                XCTAssertEqual(Array(layout.visibleEntries.prefix(2)).map(\.id),[.cpu,.network])
             }
         }
     }
@@ -250,6 +252,112 @@ final class PopupLayoutTests:XCTestCase {
             XCTAssertEqual(restored.visibleEntries.first?.id,.memory)
         }
     }
+    func testLegacyDefaultMigratesToSixCategoriesOnceAndKeepsColumns() async throws {
+        try await MainActor.run {
+            try Self.withStoredLayout(version:1,columns:3,entries:Self.legacyEntries) {layout,defaults in
+                XCTAssertEqual(layout.visibleEntries.map(\.id),[.cpu,.memory,.network,.diskActivity,.energy,.batteryFlow])
+                XCTAssertEqual(layout.columnCount,3)
+                let data=try XCTUnwrap(defaults.data(forKey:PopupLayoutSettings.storageKey))
+                let payload=try XCTUnwrap(JSONSerialization.jsonObject(with:data) as? [String:Any])
+                XCTAssertEqual(payload["version"] as? Int,2)
+                let legacy=try XCTUnwrap(defaults.data(forKey:PopupLayoutSettings.legacyStorageKey))
+                let oldPayload=try XCTUnwrap(JSONSerialization.jsonObject(with:legacy) as? [String:Any])
+                XCTAssertEqual(oldPayload["version"] as? Int,1)
+                // A dedicated tile enabled after migration remains a distinct user choice.
+                layout.place(.upload,atVisibleIndex:0)
+                let restored=PopupLayoutSettings(defaults:defaults)
+                XCTAssertEqual(restored.entries,layout.entries)
+                XCTAssertEqual(restored.visibleEntries.first?.id,.upload)
+            }
+        }
+    }
+    func testCustomLegacyMigrationPreservesFirstVisibleCategoryPositionAndSpan() async throws {
+        try await MainActor.run {
+            let entries:[PopupLayoutEntry]=[
+                .init(id:.cpu,visible:false,span:.square),
+                .init(id:.upload,visible:true,span:.fullWidth),
+                .init(id:.memory,visible:false,span:.fullWidth),
+                .init(id:.download,visible:true,span:.square),
+                .init(id:.cpuProcesses,visible:true,span:.square),
+                .init(id:.energyImpact,visible:true,span:.fullWidth),
+                .init(id:.processCPUPower,visible:true,span:.square),
+                .init(id:.diskWrite,visible:false,span:.fullWidth),
+                .init(id:.batteryFlow,visible:true,span:.square)
+            ]
+            try Self.withStoredLayout(version:1,columns:4,entries:entries) {layout,defaults in
+                XCTAssertEqual(layout.visibleEntries.map(\.id),[.network,.cpu,.energy,.batteryFlow])
+                XCTAssertEqual(layout.visibleEntries.map(\.span),[.fullWidth,.square,.fullWidth,.square])
+                XCTAssertEqual(layout.columnCount,4)
+                XCTAssertFalse(layout.entries.first {$0.id == .memory}!.visible)
+                XCTAssertFalse(layout.entries.first {$0.id == .diskActivity}!.visible)
+                XCTAssertEqual(layout.entries.first {$0.id == .upload},.init(id:.upload,visible:false,span:.fullWidth))
+                XCTAssertEqual(layout.entries.first {$0.id == .memory}?.span,.fullWidth)
+                XCTAssertEqual(PopupLayoutSettings(defaults:defaults).entries,layout.entries)
+                XCTAssertEqual(Set(layout.entries.map(\.id)).count,PopupItemID.allCases.count)
+            }
+        }
+    }
+    func testLegacyAllHiddenLayoutDoesNotEnableAnyConsolidatedTile() async throws {
+        try await MainActor.run {
+            let hidden=Self.legacyEntries.map {PopupLayoutEntry(id:$0.id,visible:false,span:$0.span)}
+            try Self.withStoredLayout(version:1,columns:5,entries:hidden) {layout,defaults in
+                XCTAssertTrue(layout.visibleEntries.isEmpty)
+                XCTAssertEqual(layout.columnCount,5)
+                XCTAssertTrue(PopupLayoutSettings(defaults:defaults).visibleEntries.isEmpty)
+                XCTAssertEqual(layout.availableEntries.count,PopupItemID.allCases.count)
+            }
+        }
+    }
+    func testInvalidCurrentPayloadFallsBackToLegacyChoicesAndPreservesLegacyBytes() async throws {
+        try await MainActor.run {
+            let entries=[PopupLayoutEntry(id:.upload,visible:true,span:.fullWidth)]
+            try Self.withStoredLayout(version:1,columns:4,entries:entries) {_,defaults in
+                let legacy=defaults.data(forKey:PopupLayoutSettings.legacyStorageKey)
+                defaults.set(Data("invalid current payload".utf8),forKey:PopupLayoutSettings.storageKey)
+                let restored=PopupLayoutSettings(defaults:defaults)
+                XCTAssertEqual(restored.visibleEntries,[PopupLayoutEntry(id:.network,visible:true,span:.fullWidth)])
+                XCTAssertEqual(restored.columnCount,4)
+                XCTAssertEqual(defaults.data(forKey:PopupLayoutSettings.legacyStorageKey),legacy)
+                XCTAssertEqual(PopupLayoutSettings(defaults:defaults).entries,restored.entries)
+            }
+        }
+    }
+    func testFutureCurrentSchemaIsNeverOverwrittenOnInitialization() async throws {
+        try await MainActor.run {
+            let entries=[PopupLayoutEntry(id:.upload,visible:true,span:.square)]
+            try Self.withStoredLayout(version:1,columns:3,entries:entries) {_,defaults in
+                // Even an undecodable future schema must not be mistaken for corrupt old data.
+                let future=Data(#"{"version":99,"futureShape":{"panels":["custom"]}}"#.utf8)
+                let legacy=defaults.data(forKey:PopupLayoutSettings.legacyStorageKey)
+                defaults.set(future,forKey:PopupLayoutSettings.storageKey)
+                let restored=PopupLayoutSettings(defaults:defaults)
+                XCTAssertEqual(restored.visibleEntries.map(\.id),[.network])
+                XCTAssertEqual(defaults.data(forKey:PopupLayoutSettings.storageKey),future)
+                XCTAssertEqual(defaults.data(forKey:PopupLayoutSettings.legacyStorageKey),legacy)
+            }
+        }
+    }
+    func testRatesKeepExplicitUnitsAndAvailabilityDistinctFromZero() {
+        XCTAssertEqual(popupRateValue(0),.init(value:"0",unit:"B/s"))
+        XCTAssertEqual(popupRateValue(48_600_000),.init(value:"48.6",unit:"MB/s"))
+        XCTAssertEqual(popupRateValue(1_200_000),.init(value:"1.2",unit:"MB/s"))
+        XCTAssertEqual(popupRateValue(999_950),.init(value:"1.0",unit:"MB/s"))
+        XCTAssertEqual(popupRateValue(nil),.init(value:"—",unit:""))
+        XCTAssertEqual(popupRateValue(-1),.init(value:"—",unit:""))
+        XCTAssertEqual(popupRateValue(.nan),.init(value:"—",unit:""))
+        XCTAssertEqual(popupRateValue(.infinity),.init(value:"—",unit:""))
+    }
+    func testConsolidatedCPUWattsRemainObservedSubtotalWithUnavailableFrames() {
+        let process=ProcessRow(pid:2,parent:1,start:1,name:"worker",cpu:0,memory:0,growth:nil,read:nil,written:nil,energyNanojoules:4_000_000_000)
+        var frame=Frame(time:Date(),cpu:0,memory:0,compressed:0,swap:0,download:0,upload:0,processes:[process],denied:0,elapsed:2)
+        XCTAssertEqual(popupCPUPower(frame),2)
+        frame.processes.append(ProcessRow(pid:3,parent:1,start:1,name:"restricted",cpu:nil,memory:nil,growth:nil,read:nil,written:nil))
+        XCTAssertEqual(popupCPUPower(frame),2)
+        frame.processes=[frame.processes[1]]
+        XCTAssertNil(popupCPUPower(frame))
+        frame.processes=[process];frame.elapsed=nil
+        XCTAssertNil(popupCPUPower(frame))
+    }
     func testEnergyImpactRowsUsePerSecondScoreAndMatchProcessLifetime() {
         let start=Date(timeIntervalSince1970:1_800_000_000)
         let processStart:UInt64=1_799_999_900_000_000
@@ -275,5 +383,18 @@ final class PopupLayoutTests:XCTestCase {
         let defaults=UserDefaults(suiteName:suite)!
         defer {defaults.removePersistentDomain(forName:suite)}
         body(PopupLayoutSettings(defaults:defaults),defaults)
+    }
+    private static var legacyEntries:[PopupLayoutEntry] {
+        let visible:Set<PopupItemID>=[.cpu,.memory,.download,.upload,.batteryFlow,.processCPUPower,.energyImpact]
+        let order:[PopupItemID]=[.cpu,.memory,.download,.upload,.batteryFlow,.processCPUPower,.energyImpact,.cpuProcesses,.diskRead,.diskWrite,.memoryDetail,.applicationCPUPower]
+        return order.map {PopupLayoutEntry(id:$0,visible:visible.contains($0),span:.square)}
+    }
+    @MainActor private static func withStoredLayout(version:Int,columns:Int,entries:[PopupLayoutEntry],_ body:(PopupLayoutSettings,UserDefaults)throws->Void)throws {
+        let suite="watt-popup-migration-"+UUID().uuidString
+        let defaults=UserDefaults(suiteName:suite)!
+        defer {defaults.removePersistentDomain(forName:suite)}
+        let payload:[String:Any]=["version":version,"columnCount":columns,"entries":entries.map {["id":$0.id.rawValue,"visible":$0.visible,"span":$0.span.rawValue] as [String:Any]}]
+        defaults.set(try JSONSerialization.data(withJSONObject:payload),forKey:version==1 ? PopupLayoutSettings.legacyStorageKey : PopupLayoutSettings.storageKey)
+        try body(PopupLayoutSettings(defaults:defaults),defaults)
     }
 }

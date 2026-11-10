@@ -33,6 +33,8 @@ struct Frame: Codable, Identifiable {
     var processCPUAccounting: String? = nil
     // Preserve the capture identity and interval; multiple frames may reference the same reading.
     var energyImpact: EnergyImpactSample? = nil
+    // Independent passive network captures have their own identity and interval.
+    var processNetwork:ProcessNetworkSample? = nil
     var id: Date { time }
 }
 func delta(_ value: UInt64, _ previous: UInt64) -> UInt64? { value >= previous ? value - previous : nil }
@@ -52,12 +54,14 @@ final class Collector {
     private var last: TimeInterval?
     private var lastSystem:TimeInterval?
     private let applicationResolver=ProcessApplicationResolver()
+    private let processNetworkCollector=ProcessNetworkCollector()
+    private var processNetworkEnabled=true
     private var baselineStartedAt=Date()
     private let privilegedSample:()->ProcessTelemetrySample?
     init(privilegedSample:@escaping ()->ProcessTelemetrySample? = {PrivilegedProcessClient.shared.sample()}) {
         self.privilegedSample=privilegedSample
     }
-    func sample() -> Frame? {
+    func sample(cadence:Double=5) -> Frame? {
         failed = false
         var system = WattSystem()
         guard watt_system(&system) != 0 else { failed = true; return nil }
@@ -88,6 +92,7 @@ final class Collector {
             return row
         }
         applicationResolver.retain(processIDs:Set(next.keys))
+        let network=processNetworkEnabled ? processNetworkCollector.sample(processes:rows,cadence:cadence) : nil
         var cpu = 0.0, rx = 0.0, tx = 0.0
         if let old=previous,let systemElapsed,systemElapsed>0 {
             let active = Double(delta(system.user, old.user) ?? 0) + Double(delta(system.system, old.system) ?? 0)
@@ -100,9 +105,14 @@ final class Collector {
         guard baseline else { return nil }
         let energyImpact=EnergyImpactCache.shared.latest(maxAge:15,now:sampledAt).flatMap { $0.startedAt>=baselineStartedAt ? $0 : nil }
         return Frame(time:sampledAt,cpu:cpu,memory:system.memory,compressed:system.compressed,swap:system.swap,
-                     download:rx,upload:tx,processes:rows,denied:denied,power:PowerReading.read(),elapsed:elapsed,memoryAccounting:"app-wired-compressed",processCPUAccounting:"mach-timebase-to-nanoseconds",energyImpact:energyImpact)
+                     download:rx,upload:tx,processes:rows,denied:denied,power:PowerReading.read(),elapsed:elapsed,memoryAccounting:"app-wired-compressed",processCPUAccounting:"mach-timebase-to-nanoseconds",energyImpact:energyImpact,processNetwork:network)
     }
-    func reset() {previous=nil;processes=[:];processSource=nil;last=nil;lastSystem=nil;baselineStartedAt=Date()}
+    func setProcessNetworkEnabled(_ value:Bool) {
+        guard value != processNetworkEnabled else {return}
+        processNetworkEnabled=value;processNetworkCollector.reset()
+    }
+    func stop() {processNetworkCollector.stop()}
+    func reset() {previous=nil;processes=[:];processSource=nil;last=nil;lastSystem=nil;baselineStartedAt=Date();processNetworkCollector.reset()}
 }
 
 @MainActor final class Monitor: ObservableObject {
@@ -119,6 +129,11 @@ final class Collector {
     @Published var paused=false
     @Published var error:String?
     @Published var interval=5.0 {didSet {UserDefaults.standard.set(interval,forKey:"recording.interval");scheduleSample(after:0)}}
+    @Published var recordsProcessNetwork=true {didSet {
+        UserDefaults.standard.set(recordsProcessNetwork,forKey:"recording.processNetwork.enabled")
+        let enabled=recordsProcessNetwork
+        queue.async {self.backend.collector.setProcessNetworkEnabled(enabled)}
+    }}
     @Published var selected:Date? {didSet{invalidateCurrentSnapshot()}}
     @Published var gaps:[RecordingGap]=[] {didSet{invalidateCurrentSnapshot()}}
     @Published var storageBytes:Int64=0
@@ -127,6 +142,7 @@ final class Collector {
     private let queue=DispatchQueue(label:"app.watt.recorder",qos:.utility)
     private var timer:Timer?
     private var collecting=false
+    private var shuttingDown=false
     private nonisolated let backend=RecorderBackend()
     private var cachedCurrentSnapshot:Frame?
     private var currentSnapshotResolved=false
@@ -178,8 +194,27 @@ final class Collector {
             }
         }
     }
+    // Detail popovers have an independent cursor and a smaller query budget.
+    // Use the same serial database queue without changing Explorer's history.
+    func loadPopupHistory(in range:DateInterval,request:PopupHistoryRequest,completion:@escaping(Result<PopupHistorySnapshot,Error>)->Void) {
+        queue.async { [self] in
+            guard !request.isCancelled else {return}
+            let result:Result<PopupHistorySnapshot,Error>=Result {
+                guard let store=backend.store else {throw NSError(domain:"Watt",code:1,userInfo:[NSLocalizedDescriptionKey:"Earlier history is unavailable."])}
+                let frames=try store.frames(in:range,maximumFrames:PopupDetailSession.maximumFrames,maximumBytes:32*1024*1024,isCancelled:{request.isCancelled})
+                guard frames.reduce(0,{$0+PopupDetailSession.rowCost($1)})<=PopupDetailSession.maximumProcessRows else {throw HistoryQueryError.tooBroad}
+                return PopupHistorySnapshot(frames:frames,gaps:try store.gaps())
+            }
+            guard !request.isCancelled else {return}
+            DispatchQueue.main.async {if !request.isCancelled {completion(result)}}
+        }
+    }
     init(previewFrames:[Frame]?=nil) {
         if let previewFrames {frames=previewFrames;liveFrame=previewFrames.last;return}
+        if UserDefaults.standard.object(forKey:"recording.processNetwork.enabled") != nil {
+            recordsProcessNetwork=UserDefaults.standard.bool(forKey:"recording.processNetwork.enabled")
+        }
+        backend.collector.setProcessNetworkEnabled(recordsProcessNetwork)
         let storedInterval=UserDefaults.standard.double(forKey:"recording.interval")
         if [2.0,5,10].contains(storedInterval) {interval=storedInterval}
         do {
@@ -195,7 +230,7 @@ final class Collector {
     }
     private func scheduleSample(after delay:TimeInterval) {
         timer?.invalidate();timer=nil
-        guard !paused,!sleeping,!collecting else {return}
+        guard !paused,!sleeping,!collecting,!shuttingDown else {return}
         let timer=Timer(timeInterval:max(0.01,delay),repeats:false) { [weak self] _ in
             MainActor.assumeIsolated {self?.tick()}
         }
@@ -203,7 +238,7 @@ final class Collector {
         self.timer=timer;RunLoop.main.add(timer,forMode:.common)
     }
     private func tick() {
-        guard !paused,!sleeping,!collecting else {return}
+        guard !paused,!sleeping,!collecting,!shuttingDown else {return}
         collecting=true
         let began=ProcessInfo.processInfo.systemUptime,cadence=interval
         queue.async { [self] in
@@ -232,6 +267,10 @@ final class Collector {
         guard paused != value else {return};paused=value
         if value {queue.async {self.backend.interrupt(reason:"Recording paused")}}
         scheduleSample(after:0)
+    }
+    func stopRecording() {
+        shuttingDown=true;timer?.invalidate();timer=nil
+        queue.sync {backend.collector.stop()}
     }
     private func setSleeping(_ value:Bool) {
         sleeping=value
