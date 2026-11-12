@@ -125,7 +125,10 @@ final class Collector {
     @Published var historyLoading=false
     @Published var historyError:String?
     private var historyRequest=UUID()
-    var visibleFrames:[Frame] {historyRange == nil ? frames : historyFrames}
+    private var historyWork:PopupHistoryRequest?
+    private var isPreview=false
+    let explorerLiveHistory=ExplorerLiveHistory()
+    var visibleFrames:[Frame] {historyRange == nil ? (explorerLiveHistory.isVisible ? explorerLiveHistory.frames : frames) : historyFrames}
     @Published var paused=false
     @Published var error:String?
     @Published var interval=5.0 {didSet {UserDefaults.standard.set(interval,forKey:"recording.interval");scheduleSample(after:0)}}
@@ -160,8 +163,10 @@ final class Collector {
         }
         return cachedCurrentSnapshot
     }
-    func returnToLive() {historyRequest=UUID();historyRange=nil;historyFrames=[];historySummaries=[];selected=nil;historyLoading=false;historyError=nil}
+    func returnToLive() {historyWork?.cancel();historyWork=nil;historyRequest=UUID();historyRange=nil;historyFrames=[];historySummaries=[];selected=nil;historyLoading=false;historyError=nil}
     func releaseHistoryDetails() {
+        explorerLiveHistory.hide()
+        historyWork?.cancel();historyWork=nil
         historyRequest=UUID()
         if !historyFrames.isEmpty {historyFrames=[]}
         if !historySummaries.isEmpty {historySummaries=[]}
@@ -175,22 +180,82 @@ final class Collector {
     }
     func loadHistory(center:Date,duration:TimeInterval) {
         let range=DateInterval(start:center.addingTimeInterval(-duration/2),duration:duration)
+        explorerLiveHistory.hide()
+        historyWork?.cancel()
+        let work=PopupHistoryRequest();historyWork=work
         let request=UUID();historyRequest=request;historyRange=range;selected=center
         historyFrames=[];historySummaries=[];historyLoading=true;historyError=nil
         queue.async { [self] in
+            guard !work.isCancelled else {return}
             do {
                 guard let store=backend.store else {throw NSError(domain:"Watt",code:1,userInfo:[NSLocalizedDescriptionKey:"History database is unavailable"])}
-                let frames=try store.frames(in:range)
+                let frames=try store.frames(in:range,isCancelled:{work.isCancelled})
+                guard !work.isCancelled else {return}
                 let gaps=try store.gaps()
                 let summaries=HistoryAnalysis.summarize(frames,range:range,gaps:gaps)
+                guard !work.isCancelled else {return}
                 let bounds=try store.bounds()
                 DispatchQueue.main.async {
-                    guard self.historyRequest==request else {return}
+                    guard !work.isCancelled,self.historyRequest==request else {return}
+                    self.historyWork=nil
                     self.historyFrames=frames;self.historySummaries=summaries;self.historyBounds=bounds
                     self.gaps=gaps;self.historyLoading=false
                 }
             } catch {
-                DispatchQueue.main.async {guard self.historyRequest==request else {return};self.historyLoading=false;self.historyError=error.localizedDescription}
+                DispatchQueue.main.async {guard !work.isCancelled,self.historyRequest==request else {return};self.historyWork=nil;self.historyLoading=false;self.historyError=error.localizedDescription}
+            }
+        }
+    }
+    func prepareExplorerLiveHistory(duration:Double) {
+        guard !isPreview,historyRange==nil else {return}
+        explorerLiveHistory.show(duration:duration,liveFrames:frames,gaps:gaps) { [weak self] range,work,completion in
+            guard let self else {return}
+            self.queue.async { [self] in
+                // Closing Explorer can cancel this request while it waits behind
+                // a recorder write. Do not start decoding after it is hidden.
+                guard !work.isCancelled else {return}
+                let result:Result<(snapshot:PopupHistorySnapshot,bounds:DateInterval?),Error>=Result {
+                    guard let store=self.backend.store else {throw NSError(domain:"Watt",code:1,userInfo:[NSLocalizedDescriptionKey:"History database is unavailable"])}
+                    let frames=try store.frames(in:range,maximumFrames:ExplorerLiveHistory.maximumFrames,
+                                               maximumBytes:ExplorerLiveHistory.maximumBytes,isCancelled:{work.isCancelled})
+                    guard ExplorerLiveHistory.fits(frames) else {throw HistoryQueryError.tooBroad}
+                    return (PopupHistorySnapshot(frames:frames,gaps:try store.gaps()),try store.bounds())
+                }
+                guard !work.isCancelled else {return}
+                DispatchQueue.main.async {
+                    guard !work.isCancelled else {return}
+                    switch result {
+                    case .success(let loaded):self.historyBounds=loaded.bounds;completion(.success(loaded.snapshot))
+                    case .failure(let error):completion(.failure(error))
+                    }
+                }
+            }
+        }
+    }
+    func pinExplorer(at time:Date,in range:DateInterval) {
+        guard historyRange==nil else {selected=time;return}
+        let cached=explorerLiveHistory.frames
+        let cachedGaps=explorerLiveHistory.gaps
+        let complete=explorerLiveHistory.isComplete
+        if !complete {
+            loadHistory(center:range.start.addingTimeInterval(range.duration/2),duration:range.duration)
+            selected=time
+            return
+        }
+        // The visible window is already complete. Pin it without reading SQLite
+        // again, and calculate its interval summary once off the main thread.
+        historyWork?.cancel();let work=PopupHistoryRequest();historyWork=work
+        let request=UUID();historyRequest=request
+        historyRange=range;historyFrames=cached;gaps=cachedGaps;selected=time
+        historySummaries=[];historyLoading=true;historyError=nil
+        explorerLiveHistory.hide();invalidateCurrentSnapshot()
+        queue.async { [self] in
+            guard !work.isCancelled else {return}
+            let summaries=HistoryAnalysis.summarize(cached,range:range,gaps:cachedGaps)
+            guard !work.isCancelled else {return}
+            DispatchQueue.main.async {
+                guard !work.isCancelled,self.historyRequest==request else {return}
+                self.historyWork=nil;self.historySummaries=summaries;self.historyLoading=false
             }
         }
     }
@@ -210,7 +275,7 @@ final class Collector {
         }
     }
     init(previewFrames:[Frame]?=nil) {
-        if let previewFrames {frames=previewFrames;liveFrame=previewFrames.last;return}
+        if let previewFrames {isPreview=true;frames=previewFrames;liveFrame=previewFrames.last;return}
         if UserDefaults.standard.object(forKey:"recording.processNetwork.enabled") != nil {
             recordsProcessNetwork=UserDefaults.standard.bool(forKey:"recording.processNetwork.enabled")
         }
@@ -280,9 +345,11 @@ final class Collector {
     var visibleGaps:[RecordingGap] {
         let range:DateInterval
         if let historyRange {range=historyRange}
+        else if explorerLiveHistory.isVisible,let liveRange=explorerLiveHistory.range {range=liveRange}
         else if let first=frames.first?.time,let last=frames.last?.time {range=DateInterval(start:first,end:max(first,last))}
         else {return []}
-        return gaps.compactMap { gap in
+        let values=historyRange==nil && explorerLiveHistory.isVisible ? explorerLiveHistory.gaps : gaps
+        return values.compactMap { gap in
             let start=max(range.start,gap.start),end=min(range.end,gap.end ?? Date())
             guard start<end else {return nil}
             return RecordingGap(id:gap.id,start:start,end:end,reason:gap.reason)

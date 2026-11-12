@@ -345,6 +345,7 @@ struct LiveView:View {
                 monitor.selected=selected
                 if context.intervalSummary {explorerControls.mode="Interval summary"}
             } else {
+                explorerControls.followLiveDate()
                 monitor.returnToLive()
                 explorerControls.center=(monitor.liveFrame?.time ?? Date()).addingTimeInterval(-context.duration/2)
             }

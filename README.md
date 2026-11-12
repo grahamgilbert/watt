@@ -16,6 +16,8 @@ Watt launches into the menu bar without opening or constructing Process Explorer
 
 Open at login is enabled by default on the first launch of an Apple-signed app build, including Apple Development and Developer ID builds. Change it in Preferences → General or macOS Login Items. Watt respects later opt-outs and opens only in the menu bar at login. macOS may require approval in System Settings. Ad hoc and unbundled command-line builds do not change login registration. See the [native validation record](docs/LOGIN_ITEM_VALIDATION.md).
 
+Live Explorer loads the selected recent interval from SQLite when opened, then follows new recordings without querying on every sample. Its history working set is released when the window closes; the small background recorder cache does not limit the recorded timeline. Detailed reads are bounded to 1,500 samples and 96 MiB of encoded data, with a 250,000-row live-view limit including process, energy and network inventories. If a window is too large, choose a shorter interval and navigate through the retained history. Watt reports that limit instead of silently showing only the latest cache contents.
+
 ## One Process Explorer
 
 Live processes and history share one window and selection. Use Live for current readings. Choose a date/time and 5-minute, 15-minute, one-hour or two-hour window, then Inspect interval. Earlier/Later queries older SQLite records beyond the live cache. At cursor shows a recorded process snapshot and optional observed parent tree. Interval summary shows time-weighted CPU average, sampled CPU peak, CPU time, last/peak footprint, observed footprint growth and valid disk totals. Move the cursor to switch back to the point view within the same window. Select a process for CPU, memory and disk curves.
