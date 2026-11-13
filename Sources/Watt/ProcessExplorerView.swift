@@ -3,6 +3,7 @@ import WattEnergyProtocol
 
 final class ProcessExplorerControls:ObservableObject {
     @Published var center=Date()
+    @Published private(set) var hasDateDraft=false
     @Published var duration=900.0
     @Published var selection:String?
     @Published var sort="CPU"
@@ -22,6 +23,13 @@ final class ProcessExplorerControls:ObservableObject {
     private var networkTask:Task<Void,Never>?
     private var networkRequest=UUID()
     private var networkHistoryKey:[Date]?
+    func navigationCenter(liveRange:DateInterval?)->Date {
+        guard !hasDateDraft,let liveRange else {return center}
+        return liveRange.start.addingTimeInterval(liveRange.duration/2)
+    }
+    func editDate(_ date:Date) {center=date;hasDateDraft=true}
+    func followLiveDate() {hasDateDraft=false}
+    func inspectDate(_ date:Date) {center=date;hasDateDraft=false}
     func releaseDerivedData() {
         snapshotCache.clear();applicationSummaries=[];impactSummaries=[:];releaseNetworkGroups()
     }
@@ -51,14 +59,16 @@ struct ProcessExplorerView:View {
     @ObservedObject var monitor:Monitor
     @StateObject private var traceCache=ExplorerTraceCache()
     @ObservedObject private var controls:ProcessExplorerControls
+    @ObservedObject private var liveHistory:ExplorerLiveHistory
     private let initializeControls:Bool
     init(monitor:Monitor,controls:ProcessExplorerControls?=nil) {
         self.monitor=monitor
         self.controls=controls ?? ProcessExplorerControls()
+        liveHistory=monitor.explorerLiveHistory
         initializeControls=controls == nil
     }
     private var range:DateInterval {
-        monitor.historyRange ?? DateInterval(start:(monitor.liveFrame?.time ?? monitor.frames.last?.time ?? Date()).addingTimeInterval(-controls.duration),duration:controls.duration)
+        monitor.historyRange ?? liveHistory.range ?? DateInterval(start:(monitor.liveFrame?.time ?? monitor.frames.last?.time ?? Date()).addingTimeInterval(-controls.duration),duration:controls.duration)
     }
     private var cursor:Date? {monitor.selected ?? monitor.liveFrame?.time}
     private var displayFrames:[Frame] {monitor.visibleFrames.filter {$0.time>=range.start && $0.time<=range.end}}
@@ -102,6 +112,7 @@ struct ProcessExplorerView:View {
         return controls.applicationSummaries.filter {controls.search.isEmpty || $0.name.localizedCaseInsensitiveContains(controls.search)}.sorted {($0.energyCoveredSeconds>0 ? $0.energyJoules : -1)>($1.energyCoveredSeconds>0 ? $1.energyJoules : -1)}
     }
     private func refreshImpactSummaries() {
+        guard summaryMode else {controls.impactSummaries=[:];return}
         controls.impactSummaries=ExplorerImpactSummary.summarize(displayFrames,range:range,gaps:monitor.visibleGaps)
     }
     private func refreshApplicationSummaries() {
@@ -164,9 +175,20 @@ struct ProcessExplorerView:View {
         guard controls.tree else {return 0}
         return snapshot.depths[row.id] ?? 0
     }
-    private func load() {monitor.loadHistory(center:controls.center,duration:controls.duration);controls.mode="Interval summary"}
-    private func moveWindow(_ direction:Double) {controls.center=controls.center.addingTimeInterval(controls.duration*direction);load()}
-    private func selectTime(_ date:Date) {monitor.selected=date;controls.mode="At cursor"}
+    private var navigationRange:DateInterval? {monitor.historyRange==nil ? range : nil}
+    private func inspect(center:Date) {
+        controls.inspectDate(center)
+        monitor.loadHistory(center:center,duration:controls.duration);controls.mode="Interval summary"
+    }
+    private func load() {inspect(center:controls.navigationCenter(liveRange:navigationRange))}
+    private func moveWindow(_ direction:Double) {
+        inspect(center:controls.navigationCenter(liveRange:navigationRange).addingTimeInterval(controls.duration*direction))
+    }
+    private func selectTime(_ date:Date) {
+        let currentRange=range
+        controls.inspectDate(currentRange.start.addingTimeInterval(currentRange.duration/2))
+        monitor.pinExplorer(at:date,in:currentRange);controls.mode="At cursor"
+    }
     private var selectedIdentity:ProcessRow? {
         guard let id=controls.selection else {return nil}
         return snapshot.processes.first(where:{$0.id==id}) ?? monitor.historySummaries.first(where:{$0.id==id})?.process ?? displayFrames.reversed().lazy.compactMap {$0.processes.first(where:{$0.id==id})}.first
@@ -217,14 +239,24 @@ struct ProcessExplorerView:View {
                 refreshApplicationSummaries();refreshNetworkGroups()
             }
             .onChange(of:controls.sort) {_,_ in refreshApplicationSummaries();refreshNetworkGroups()}
+            .onChange(of:controls.duration) {_,_ in if monitor.historyRange==nil {monitor.prepareExplorerLiveHistory(duration:controls.duration)}}
+            .onChange(of:monitor.historyRange) {_,range in
+                if range==nil {controls.followLiveDate();monitor.prepareExplorerLiveHistory(duration:controls.duration)}
+                else {liveHistory.hide()}
+            }
+            .onChange(of:monitor.liveFrame?.time) {_,_ in
+                if let frame=monitor.liveFrame {liveHistory.observe(frame,gaps:monitor.gaps)}
+            }
             .onChange(of:monitor.historyLoading) {_,loading in if loading {controls.applicationSummaries=[];controls.impactSummaries=[:];controls.releaseNetworkGroups()} else {refreshApplicationSummaries();refreshImpactSummaries();refreshNetworkGroups()}}
             .onAppear {
+                if monitor.historyRange==nil {monitor.prepareExplorerLiveHistory(duration:controls.duration)}
                 refreshImpactSummaries()
                 refreshApplicationSummaries();refreshNetworkGroups()
                 guard initializeControls else {return}
                 if let range=monitor.historyRange {controls.center=range.start.addingTimeInterval(range.duration/2);controls.duration=range.duration;controls.mode="Interval summary"}
                 else {controls.center=(monitor.liveFrame?.time ?? monitor.historyBounds?.end ?? Date()).addingTimeInterval(-controls.duration/2)}
             }
+            .onDisappear {liveHistory.hide()}
     }
     private var header:some View {
         HStack(spacing:10) {
@@ -232,14 +264,14 @@ struct ProcessExplorerView:View {
             Text("Process Explorer").font(.system(size:18,weight:.semibold))
             Text("This Mac").font(.system(size:11)).foregroundStyle(.secondary)
             Spacer()
-            if monitor.historyLoading {ProgressView().controlSize(.small)}
-            Button("Return to live") {monitor.returnToLive();controls.mode="At cursor"}.controlSize(.small).disabled(isLive)
+            if monitor.historyLoading || liveHistory.isLoading {ProgressView().controlSize(.small)}
+            Button("Return to live") {controls.followLiveDate();monitor.returnToLive();controls.mode="At cursor"}.controlSize(.small).disabled(isLive && !controls.hasDateDraft)
         }.padding(.horizontal,20).padding(.vertical,13)
     }
     private var timeToolbar:some View {
         HStack(spacing:10) {
             Text(isLive ? "Live" : range.start.formatted(date:.abbreviated,time:.omitted)).font(.system(size:14,weight:.semibold)).frame(minWidth:54,alignment:.leading)
-            DatePicker("Go to",selection:$controls.center,displayedComponents:[.date,.hourAndMinute]).labelsHidden().accessibilityLabel("History date and time").frame(width:185)
+            DatePicker("Go to",selection:Binding(get:{controls.navigationCenter(liveRange:navigationRange)},set:{controls.editDate($0)}),displayedComponents:[.date,.hourAndMinute]).labelsHidden().accessibilityLabel("History date and time").frame(width:185)
             Picker("Window",selection:$controls.duration) {
                 if ![60.0,120,300,900,3600,7200].contains(controls.duration) {Text(String(format:"%.0f seconds",controls.duration)).tag(controls.duration)}
                 Text("1 minute").tag(60.0);Text("2 minutes").tag(120.0);Text("5 minutes").tag(300.0);Text("15 minutes").tag(900.0);Text("1 hour").tag(3600.0);Text("2 hours").tag(7200.0)
@@ -307,7 +339,7 @@ struct ProcessExplorerView:View {
     private var statusFooter:some View {
         HStack(spacing:6) {
             Circle().fill(Color.orange.opacity(0.8)).frame(width:4,height:4)
-            if let error=monitor.historyError ?? monitor.error {Text(error).foregroundStyle(.orange)}
+            if let error=liveHistory.error ?? monitor.historyError ?? monitor.error {Text(error).foregroundStyle(.orange)}
             else {Text("Sampled history · short-lived processes can be missed · — means unavailable").foregroundStyle(.secondary)}
             if (summaryMode && hasLegacyCPU) || (monitor.current.map {$0.processCPUAccounting == nil} ?? false) {
                 Text(mixedCPUAccounting && summaryMode ? "· mixed CPU accounting: corrected records only" : "· legacy process CPU scaling").foregroundStyle(.orange)

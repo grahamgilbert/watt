@@ -3,6 +3,29 @@ import AppKit
 @testable import Watt
 
 final class HiddenSurfaceTests:XCTestCase {
+    @MainActor func testHidingLiveExplorerReleasesBackfillButKeepsTheRecorderSuffix() throws {
+        _=NSApplication.shared
+        let suite="watt-hidden-test-"+UUID().uuidString
+        let defaults=try XCTUnwrap(UserDefaults(suiteName:suite))
+        defer {defaults.removePersistentDomain(forName:suite)}
+        let recorded=PopupLayoutPreview.frames
+        let suffix=Array(recorded.suffix(2))
+        let monitor=Monitor(previewFrames:suffix)
+        monitor.explorerLiveHistory.show(duration:900,liveFrames:suffix,gaps:[]) {_,_,finish in
+            finish(.success(PopupHistorySnapshot(frames:recorded,gaps:[])))
+        }
+        XCTAssertGreaterThan(monitor.visibleFrames.count,suffix.count)
+        let delegate=AppDelegate(monitor:monitor,menuSettings:MenuBarSettings(defaults:defaults),popupLayout:PopupLayoutSettings(defaults:defaults))
+        let window=NSWindow(contentRect:NSRect(x:-10000,y:-10000,width:200,height:100),styleMask:[],backing:.buffered,defer:false)
+        window.isReleasedWhenClosed=false;delegate.window=window;window.contentView=NSView()
+        delegate.windowDidResignKey(Notification(name:NSWindow.didResignKeyNotification,object:window))
+        XCTAssertFalse(monitor.explorerLiveHistory.isVisible)
+        XCTAssertTrue(monitor.explorerLiveHistory.frames.isEmpty)
+        XCTAssertEqual(monitor.frames.map(\.time),suffix.map(\.time))
+        XCTAssertEqual(monitor.visibleFrames.map(\.time),suffix.map(\.time))
+        window.close()
+    }
+
     @MainActor func testHidingExplorerReleasesViewAndHistoryButKeepsSelection() throws {
         _=NSApplication.shared
         let suite="watt-hidden-test-"+UUID().uuidString
